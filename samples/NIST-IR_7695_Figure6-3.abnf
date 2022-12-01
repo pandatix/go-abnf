@@ -1,0 +1,35 @@
+formstring     = "cpe:2.3:" component-list
+
+component-list = part ":" vendor ":" product ":" version ":" update ":"
+                 edition ":" lang ":" sw_edition ":" target_sw ":"
+                 target_hw ":" other
+
+part           = "h" / "o" / "a" / logical
+vendor         = avstring
+product        = avstring
+version        = avstring
+update         = avstring
+edition        = avstring
+lang           = LANGTAG / logical
+sw_edition     = avstring
+target_sw      = avstring
+target_hw      = avstring
+other          = avstring
+avstring       = *1spec_chrs 1*( unreserved / quoted ) *1spec_chrs / logical
+spec_chrs      = 1*spec1 / spec2
+logical        = "*" / "-"
+special        = spec1 / spec2
+spec1          = "?"
+spec2          = "*"
+unreserved     = ALPHA / DIGIT / "-" / "." / "_"
+quoted         = escape (escape / special / punc)
+escape         = "\"
+punc           = "!" / DQUOTE / "#" / "$" / "%" / "&" / "'" / "(" / ")" /
+                 "+" / "," / "/" / ":" / ";" / "<" / "=" / ">" / "@" /
+                 "[" / "]" / "^" / "`" / "{" / "|" / "}" / "~"
+ALPHA          = %x41-5a / %x61-7A   ; a-z
+DIGIT          = %x30-39  ; 0-9
+DQUOTE         = %x22 ; double-quote
+LANGTAG        = language ["-" region] ; cf. [RFC5646]
+language       = 2*3ALPHA              ; shortest ISO 639 code
+region         = 2ALPHA / 3DIGIT       ; ISO 3166-1 code or UN M.49 code
