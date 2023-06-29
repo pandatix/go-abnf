@@ -68,7 +68,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'0'},
+								sensitive: false,
+								values:    []byte{'0'},
 							},
 						},
 					},
@@ -78,7 +79,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'1'},
+								sensitive: false,
+								values:    []byte{'1'},
 							},
 						},
 					},
@@ -256,7 +258,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'A'},
+								sensitive: false,
+								values:    []byte{'A'},
 							},
 						},
 					},
@@ -266,7 +269,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'B'},
+								sensitive: false,
+								values:    []byte{'B'},
 							},
 						},
 					},
@@ -276,7 +280,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'C'},
+								sensitive: false,
+								values:    []byte{'C'},
 							},
 						},
 					},
@@ -286,7 +291,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'D'},
+								sensitive: false,
+								values:    []byte{'D'},
 							},
 						},
 					},
@@ -296,7 +302,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'E'},
+								sensitive: false,
+								values:    []byte{'E'},
 							},
 						},
 					},
@@ -306,7 +313,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'F'},
+								sensitive: false,
+								values:    []byte{'F'},
 							},
 						},
 					},
@@ -543,7 +551,7 @@ var (
 																			min: 0,
 																			max: inf,
 																			element: elemRulename{
-																				name: "WSP",
+																				name: "WSP", // Fixed according to Errata 3076
 																			},
 																		}, {
 																			min: 1,
@@ -651,7 +659,8 @@ var (
 													min: 1,
 													max: 1,
 													element: elemCharVal{
-														values: []rune{'-'},
+														sensitive: false,
+														values:    []byte{'-'},
 													},
 												},
 											},
@@ -690,7 +699,8 @@ var (
 													min: 1,
 													max: 1,
 													element: elemCharVal{
-														values: []rune{'='},
+														sensitive: false,
+														values:    []byte{'='},
 													},
 												},
 											},
@@ -700,7 +710,8 @@ var (
 													min: 1,
 													max: 1,
 													element: elemCharVal{
-														values: []rune{'=', '/'},
+														sensitive: false,
+														values:    []byte{'=', '/'},
 													},
 												},
 											},
@@ -737,7 +748,7 @@ var (
 							min: 0,
 							max: inf,
 							element: elemRulename{
-								name: "WSP",
+								name: "WSP", // Fixed according to Errata 2968
 							},
 						},
 					},
@@ -834,7 +845,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{';'},
+								sensitive: false,
+								values:    []byte{';'},
 							},
 						},
 						{
@@ -914,7 +926,8 @@ var (
 													min: 1,
 													max: 1,
 													element: elemCharVal{
-														values: []rune{'/'},
+														sensitive: false,
+														values:    []byte{'/'},
 													},
 												},
 												{
@@ -1066,7 +1079,8 @@ var (
 													min: 1,
 													max: 1,
 													element: elemCharVal{
-														values: []rune{'*'},
+														sensitive: false,
+														values:    []byte{'*'},
 													},
 												},
 												{
@@ -1172,7 +1186,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'('},
+								sensitive: false,
+								values:    []byte{'('},
 							},
 						},
 						{
@@ -1200,7 +1215,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{')'},
+								sensitive: false,
+								values:    []byte{')'},
 							},
 						},
 					},
@@ -1219,7 +1235,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'['},
+								sensitive: false,
+								values:    []byte{'['},
 							},
 						},
 						{
@@ -1247,7 +1264,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{']'},
+								sensitive: false,
+								values:    []byte{']'},
 							},
 						},
 					},
@@ -1256,6 +1274,7 @@ var (
 		},
 	}
 
+	// Written as overrided by RFC 7405
 	abnfCharVal = &rule{
 		name: "char-val",
 		alternation: alternation{
@@ -1266,10 +1285,104 @@ var (
 							min: 1,
 							max: 1,
 							element: elemRulename{
-								name: "DQUOTE",
+								name: "case-insensitive-string",
 							},
 						},
+					},
+				}, {
+					repetitions: []repetition{
 						{
+							min: 1,
+							max: 1,
+							element: elemRulename{
+								name: "case-sensitive-string",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	abnfCaseInsensitiveString = &rule{
+		name: "case-insensitive-string",
+		alternation: alternation{
+			concatenations: []concatenation{
+				{
+					repetitions: []repetition{
+						{
+							min: 1,
+							max: 1,
+							element: elemOption{
+								alternation: alternation{
+									concatenations: []concatenation{
+										{
+											repetitions: []repetition{
+												{
+													min: 1,
+													max: 1,
+													element: elemCharVal{
+														sensitive: false,
+														values:    []byte{'%', 'i'},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						}, {
+							min: 1,
+							max: 1,
+							element: elemRulename{
+								name: "quoted-string",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	abnfCaseSensitiveString = &rule{
+		name: "case-sensitive-string",
+		alternation: alternation{
+			concatenations: []concatenation{
+				{
+					repetitions: []repetition{
+						{
+							min: 1,
+							max: 1,
+							element: elemCharVal{
+								sensitive: false,
+								values:    []byte{'%', 's'},
+							},
+						}, {
+							min: 1,
+							max: 1,
+							element: elemRulename{
+								name: "quoted-string",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	abnfQuotedString = &rule{
+		name: "quoted-string",
+		alternation: alternation{
+			concatenations: []concatenation{
+				{
+					repetitions: []repetition{
+						{
+							min: 1,
+							max: 1,
+							element: elemRulename{
+								name: "DQUOTE",
+							},
+						}, {
 							min: 0,
 							max: inf,
 							element: elemGroup{
@@ -1287,8 +1400,7 @@ var (
 													},
 												},
 											},
-										},
-										{
+										}, {
 											repetitions: []repetition{
 												{
 													min: 1,
@@ -1304,8 +1416,7 @@ var (
 									},
 								},
 							},
-						},
-						{
+						}, {
 							min: 1,
 							max: 1,
 							element: elemRulename{
@@ -1328,7 +1439,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'%'},
+								sensitive: false,
+								values:    []byte{'%'},
 							},
 						},
 						{
@@ -1390,7 +1502,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'b'},
+								sensitive: false,
+								values:    []byte{'b'},
 							},
 						},
 						{
@@ -1420,7 +1533,8 @@ var (
 																			min: 1,
 																			max: 1,
 																			element: elemCharVal{
-																				values: []rune{'.'},
+																				sensitive: false,
+																				values:    []byte{'.'},
 																			},
 																		},
 																		{
@@ -1452,7 +1566,8 @@ var (
 																			min: 1,
 																			max: 1,
 																			element: elemCharVal{
-																				values: []rune{'-'},
+																				sensitive: false,
+																				values:    []byte{'-'},
 																			},
 																		},
 																		{
@@ -1490,7 +1605,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'d'},
+								sensitive: false,
+								values:    []byte{'d'},
 							},
 						},
 						{
@@ -1520,7 +1636,8 @@ var (
 																			min: 1,
 																			max: 1,
 																			element: elemCharVal{
-																				values: []rune{'.'},
+																				sensitive: false,
+																				values:    []byte{'.'},
 																			},
 																		},
 																		{
@@ -1552,7 +1669,8 @@ var (
 																			min: 1,
 																			max: 1,
 																			element: elemCharVal{
-																				values: []rune{'-'},
+																				sensitive: false,
+																				values:    []byte{'-'},
 																			},
 																		},
 																		{
@@ -1590,7 +1708,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'x'},
+								sensitive: false,
+								values:    []byte{'x'},
 							},
 						},
 						{
@@ -1620,7 +1739,8 @@ var (
 																			min: 1,
 																			max: 1,
 																			element: elemCharVal{
-																				values: []rune{'.'},
+																				sensitive: false,
+																				values:    []byte{'.'},
 																			},
 																		},
 																		{
@@ -1652,7 +1772,8 @@ var (
 																			min: 1,
 																			max: 1,
 																			element: elemCharVal{
-																				values: []rune{'-'},
+																				sensitive: false,
+																				values:    []byte{'-'},
 																			},
 																		},
 																		{
@@ -1690,7 +1811,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'<'},
+								sensitive: false,
+								values:    []byte{'<'},
 							},
 						},
 						{
@@ -1733,7 +1855,8 @@ var (
 							min: 1,
 							max: 1,
 							element: elemCharVal{
-								values: []rune{'>'},
+								sensitive: false,
+								values:    []byte{'>'},
 							},
 						},
 					},

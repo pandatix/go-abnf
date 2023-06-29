@@ -15,17 +15,17 @@ type rule struct {
 	alternation alternation
 }
 
-func (this rule) String() string {
-	return fmt.Sprintf("%s = %s", this.name, this.alternation)
+func (rl rule) String() string {
+	return fmt.Sprintf("%s = %s", rl.name, rl.alternation)
 }
 
 type alternation struct {
 	concatenations []concatenation
 }
 
-func (this alternation) String() string {
+func (alt alternation) String() string {
 	str := ""
-	for _, concat := range this.concatenations {
+	for _, concat := range alt.concatenations {
 		str += fmt.Sprintf("%s / ", concat)
 	}
 	return strings.TrimSuffix(str, " / ")
@@ -35,9 +35,9 @@ type concatenation struct {
 	repetitions []repetition
 }
 
-func (this concatenation) String() string {
+func (cnt concatenation) String() string {
 	str := ""
-	for _, rep := range this.repetitions {
+	for _, rep := range cnt.repetitions {
 		str += fmt.Sprintf("%s ", rep)
 	}
 	return strings.TrimSuffix(str, " ")
@@ -48,30 +48,30 @@ type repetition struct {
 	element  elemItf
 }
 
-func (this repetition) String() string {
-	if this.min == this.max {
-		if this.min == 1 {
-			return this.element.String()
+func (rep repetition) String() string {
+	if rep.min == rep.max {
+		if rep.min == 1 {
+			return rep.element.String()
 		}
-		return strconv.Itoa(this.min) + this.element.String()
+		return strconv.Itoa(rep.min) + rep.element.String()
 	}
 	str := ""
-	if this.min != 0 {
-		str += strconv.Itoa(this.min)
+	if rep.min != 0 {
+		str += strconv.Itoa(rep.min)
 	}
 	str += "*"
-	if this.max != inf {
-		str += strconv.Itoa(this.max)
+	if rep.max != inf {
+		str += strconv.Itoa(rep.max)
 	}
-	return str + this.element.String()
+	return str + rep.element.String()
 }
 
 type elemRulename struct {
 	name string
 }
 
-func (this elemRulename) String() string {
-	return this.name
+func (erln elemRulename) String() string {
+	return erln.name
 }
 
 var _ elemItf = (*elemRulename)(nil)
@@ -80,8 +80,8 @@ type elemGroup struct {
 	alternation alternation
 }
 
-func (this elemGroup) String() string {
-	return "(" + this.alternation.String() + ")"
+func (egrp elemGroup) String() string {
+	return "(" + egrp.alternation.String() + ")"
 }
 
 var _ elemItf = (*elemGroup)(nil)
@@ -90,19 +90,21 @@ type elemOption struct {
 	alternation alternation
 }
 
-func (this elemOption) String() string {
-	return "[" + this.alternation.String() + "]"
+func (eopt elemOption) String() string {
+	return "[" + eopt.alternation.String() + "]"
 }
 
 var _ elemItf = (*elemOption)(nil)
 
 type elemCharVal struct {
-	values []rune
+	// sensitive is by default false, added for support with RFC 7405
+	sensitive bool
+	values    []byte
 }
 
-func (this elemCharVal) String() string {
+func (ecvl elemCharVal) String() string {
 	str := ""
-	for _, val := range this.values {
+	for _, val := range ecvl.values {
 		str += string(val)
 	}
 	return `"` + str + `"`
@@ -120,13 +122,13 @@ type elemNumVal struct {
 	elems  []string
 }
 
-func (this elemNumVal) String() string {
-	str := "%" + this.base
+func (envl elemNumVal) String() string {
+	str := "%" + envl.base
 	spl := "."
-	if this.status == statRange {
+	if envl.status == statRange {
 		spl = "-"
 	}
-	for _, val := range this.elems {
+	for _, val := range envl.elems {
 		str += val + spl
 	}
 	return strings.TrimSuffix(str, spl)
@@ -138,9 +140,9 @@ type elemProseVal struct {
 	values []string
 }
 
-func (this elemProseVal) String() string {
+func (epvl elemProseVal) String() string {
 	str := ""
-	for _, val := range this.values {
+	for _, val := range epvl.values {
 		str += val
 	}
 	return "<" + str + ">"
