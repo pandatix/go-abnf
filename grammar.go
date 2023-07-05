@@ -26,7 +26,7 @@ func (g *Grammar) GenerateTest(source []byte) []byte {
 // Notice it validates uniqueness of value as having multiple valid
 // paths may lead to inconsistencies between implementations, thus
 // leading to interpretations, bugs and maybe vulnerabilities.
-func (g *Grammar) Validate(value []byte) bool {
+func (g *Grammar) Validate(input []byte) bool {
 	return false
 }
 
@@ -40,11 +40,7 @@ func (g *Grammar) String() string {
 	return strings.TrimSuffix(str, "\n")
 }
 
-// GST, or Grammar Syntax Tree, represents the ouput of a parsing.
-// This should be lexed in order to be usable as a grammar source.
-type GST Segment
-
-// Segment represents a portion of an input that matched a rule from
+// Path represents a portion of an input that matched a rule from
 // an index to another, with a composite structure.
 //
 // Notice it does not matches specifically ABNF grammar, but any
@@ -61,42 +57,9 @@ type GST Segment
 // with the ABNF representation of your input in ABNF structure using
 // the grammar ruleset.
 // This is like a complex game, but without the fun and friends.
-//
-// For instance, let's take the input `a = "b"“ with the ABNF grammar
-// as source, i.e. a rule `a` that matches the string "b".
-// A root segment (GST) is created with Start=0 and MatchRule=rulelist,
-// as is constitutes the root rule of an ABNF grammar.
-// Then rulelist is a single alternation, creating a single sub segment.
-// The process then goes with this segment with Start=0.
-// This alternation is composed of a single concatenation, so the same
-// goes on.
-// This concatenation is composed of a single repetition with min=1
-// and no maximum, composed of a group.
-// This group is composed of an alternation that is itself composed by
-// two concatenations.
-// The first concatenation is composed of a single repetition with
-// min=1 and max=1 that is composed of the rule "rule".
-// The process then backtrack to this rule, getting back a list of valid
-// segments to follow.
-// The second concatenation is composed of a single repetition with
-// min=1 and max=1 is composed of a group.
-// This group is composed of an alternation, itself composed of a single
-// concatenation itself composed of two repetitions.
-// The first has a min=0 and no max. The process then backtracks to the
-// rule "WSP".
-// The second has a min=1 and max=1. The process then backtracks to the
-// rule "c-nl".
-// Finally, everything backtracks and the segment is composed.
-//
-// When the process backtracks, it needs to "fork".
-// TODO fork
-//
-// TODO Then, we need to lex this GST to obtain a grammar.
-//
-// In the end, we have a rule "a" that matches the single string "b".
-type Segment struct {
-	// Sub segments aka children
-	Sub []*Segment
+type Path struct {
+	// Subpaths aka children. Ordering applies
+	Subpaths []*Path
 	// MatchRule in source's grammar ruleset
 	MatchRule string
 	// Start ≤ End
@@ -106,12 +69,13 @@ type Segment struct {
 // ParseABNF is a helper facilitating the call to Parse using the
 // pre-computed ABNF grammar and evaluates the resulting grammar
 // so the returned one is ready for parsing.
-func ParseABNF(input []byte) (*GST, error) {
+func ParseABNF(input []byte) (*Path, error) {
 	g, err := Parse(input, ABNF, "rulelist")
 	if err != nil {
 		return nil, err
 	}
-	// TODO evaluate grammar
+	// TODO lex grammar
+	// TODO validate GST => all rules (dependency) exist
 	return g, nil
 }
 
@@ -120,123 +84,207 @@ func ParseABNF(input []byte) (*GST, error) {
 // order to look for solutions. If many are found, it raises an error.
 // If the input is invalid (gramatically, incomplete...) it returns
 // an error of type *ErrParse.
-func Parse(input []byte, grammar *Grammar, rootRulename string) (*GST, error) {
+func Parse(input []byte, grammar *Grammar, rootRulename string) (*Path, error) {
 	// Select root rule to begin with
 	rootRule, ok := grammar.rulemap[rootRulename]
 	if !ok {
 		return nil, fmt.Errorf("root rule %s not found", rootRulename)
 	}
 
-	// Parse input with grammar's root rule
-	root := &Segment{
-		Sub:       []*Segment{},
+	// Parse input with grammar's initial rule
+	possibilites := solveAlt(grammar, rootRule.alternation, input, 0)
+	if len(possibilites) != 1 {
+		return nil, fmt.Errorf("got %d possibilites, expected 1", len(possibilites))
+	}
+	if possibilites[len(possibilites)-1].End != len(input) {
+		return nil, fmt.Errorf("got no possibilities")
+	}
+
+	return &Path{
+		// drop others possibilities and root match used for graph traversal
+		Subpaths:  possibilites[0].Subpaths[0].Subpaths,
 		MatchRule: rootRulename,
-		Start:     0,
-		End:       0, // Set later
-	}
-	index := 0
-	solveAlt(grammar, rootRule.alternation, root, input, &index)
-	root.End = index // should be len(input)
-
-	// TODO Check solutions
-
-	// TODO validate g => all called rules exist
-
-	return nil, nil
+		Start:     possibilites[0].Start,
+		End:       possibilites[0].End,
+	}, nil
 }
 
-func solveAlt(grammar *Grammar, alt alternation, seg *Segment, input []byte, index *int) {
+func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Path {
+	altPossibilities := []*Path{}
+
 	for _, concat := range alt.concatenations {
-		for _, rep := range concat.repetitions {
-			solveRep(grammar, rep, seg, input, index)
+		cntPossibilities := []*Path{}
+
+		// Init with first repetition (guarantee of at least 1 repetition)
+		possibilities := solveRep(grammar, concat.repetitions[0], input, index)
+		for _, poss := range possibilities {
+			cntPossibilities = append(cntPossibilities, &Path{
+				Subpaths:  []*Path{poss},
+				MatchRule: "",
+				Start:     index,
+				End:       poss.End,
+			})
 		}
+
+		// Keep going and multiply previous paths with current repetition
+		// resulting paths
+		for i := 1; i < len(concat.repetitions); i++ {
+			rep := concat.repetitions[i]
+
+			tmpPossibilities := []*Path{}
+			for _, cntPoss := range cntPossibilities {
+				possibilities := solveRep(grammar, rep, input, cntPoss.End)
+				for _, poss := range possibilities {
+					tmpPossibilities = append(tmpPossibilities, &Path{
+						Subpaths:  append(cntPoss.Subpaths, poss),
+						MatchRule: "",
+						Start:     index,
+						End:       poss.End,
+					})
+				}
+			}
+			cntPossibilities = tmpPossibilities
+		}
+
+		altPossibilities = append(altPossibilities, cntPossibilities...)
 	}
-	seg.End = *index
+	return altPossibilities
 }
 
-func solveRep(grammar *Grammar, rep repetition, seg *Segment, input []byte, index *int) {
-	// Add to possibles iif y >= rep.min
-	// possibles := []*Segment{}
+func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path {
+	// Fast check won't be out of bounds with first read
+	if !keepGoing(rep, input, index, 0) {
+		return []*Path{}
+	}
 
-	// TODO "fork" is min=0 as long as it is optional
-	y := 0
-	end := endRep(rep, input, *index, y)
-	for end {
-		// TODO handle minimum iterations
-		// TODO "fork"
+	// Find first repetition paths
+	paths := solveElem(grammar, rep.element, input, index)
 
-		switch v := rep.element.(type) {
-		case elemRulename:
-			// Create sub segment
-			sub := &Segment{
-				Sub:       []*Segment{},
-				MatchRule: v.name,
-				Start:     *index,
-				End:       0, // Set later
+	y := 1
+	kg := keepGoing(rep, input, index, y)
+
+	for kg {
+		iterPaths := []*Path{}
+		for _, poss := range paths {
+			elemPossibilities := solveElem(grammar, rep.element, input, poss.End)
+			for _, elemPoss := range elemPossibilities {
+				iterPaths = append(iterPaths, &Path{
+					Subpaths:  append(poss.Subpaths, elemPoss),
+					MatchRule: "",
+					Start:     poss.Start,
+					End:       elemPoss.End,
+				})
 			}
-			// Set it has part of children's current one
-			seg.Sub = append(seg.Sub, sub)
-			// Propagate to rule
-			solveAlt(grammar, getRule(v.name, grammar).alternation, sub, input, index)
-			// Set end index for others repetitions and upper
-			seg.End = *index
+		}
 
-		case elemOption:
-			solveRep(grammar, repetition{
-				min:     0,
-				max:     1,
-				element: v.alternation,
-			}, seg, input, index)
+		// Prepare for next iteration
+		y++
+		kg = keepGoing(rep, input, index, y)
 
-		case elemGroup:
-			solveAlt(grammar, v.alternation, seg, input, index)
+		// If no solutions now, there won't be any later.
+		if len(iterPaths) == 0 {
+			break
+		}
+		// If there exist solutions in the given interval, keep them
+		// for future iterations.
+		if y >= rep.min {
+			paths = append(paths, iterPaths...)
+		}
+	}
 
-		case elemNumVal:
-			switch v.status {
-			case statRange:
-				min, max := atob(v.elems[0], v.base), atob(v.elems[1], v.base)
-				if min <= input[*index] && input[*index] <= max {
-					*index++
-				} else {
-					// TODO drop "fork"
-					fmt.Printf("did not match\n")
-					return
-				}
+	// Add empty solution if is a valid path
+	if rep.min == 0 {
+		paths = append(paths, &Path{
+			Subpaths: []*Path{
+				{
+					Subpaths:  nil,
+					MatchRule: "",
+					Start:     index,
+					End:       index,
+				},
+			},
+			MatchRule: "", // This will be modified by upper function
+			Start:     index,
+			End:       index,
+		})
+	}
 
-			case statSeries:
-				for _, elem := range v.elems {
-					if atob(elem, v.base) == input[*index] {
-						*index++
-					} else {
-						// TODO drop "fork"
-						fmt.Printf("did not match\n")
-						return
-					}
-				}
+	return paths
+}
+
+func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path {
+	paths := []*Path{}
+
+	switch v := elem.(type) {
+	case elemRulename:
+		rule := getRule(v.name, grammar)
+		possibilities := solveAlt(grammar, rule.alternation, input, index)
+		for _, poss := range possibilities {
+			poss.MatchRule = v.name
+			paths = append(paths, poss)
+		}
+
+	case elemOption:
+		possibilities := solveRep(grammar, repetition{
+			min:     0,
+			max:     1,
+			element: v.alternation,
+		}, input, index)
+		paths = append(paths, possibilities...)
+
+	case elemGroup:
+		paths = solveAlt(grammar, v.alternation, input, index)
+
+	case elemNumVal:
+		switch v.status {
+		case statRange:
+			min, max := atob(v.elems[0], v.base), atob(v.elems[1], v.base)
+			if min <= input[index] && input[index] <= max {
+				paths = append(paths, &Path{
+					Subpaths:  nil,
+					MatchRule: "",
+					Start:     index,
+					End:       index + 1,
+				})
 			}
 
-		case elemProseVal:
-			fmt.Printf("elemProseVal\n")
-			// "<" ... ">"
-			// -> first char MUST be "<"
-			// -> last char MUST be ">"
-
-		case elemCharVal:
-			fmt.Printf("elemCharVal\n")
-			for _, val := range v.values {
-				if sensequal(val, input[*index], v.sensitive) {
-					*index++
-				} else {
-					// TODO drop "fork"
-					fmt.Printf("did not match\n")
-					return
+		case statSeries:
+			for _, elem := range v.elems {
+				if atob(elem, v.base) == input[index] {
+					paths = append(paths, &Path{
+						Subpaths:  nil,
+						MatchRule: "",
+						Start:     index,
+						End:       index + 1,
+					})
+					break // don't need to go further, check only one byte
 				}
 			}
 		}
 
-		y++
-		end = endRep(rep, input, *index, y)
+	case elemProseVal:
+		panic("elemProseVal")
+
+	case elemCharVal:
+		initialIndex := index
+		matches := true
+		for i := 0; i < len(v.values) && matches; i++ {
+			if sensequal(v.values[i], input[index], v.sensitive) {
+				index++
+			} else {
+				matches = false
+			}
+		}
+		if matches {
+			paths = append(paths, &Path{
+				Subpaths:  nil,
+				MatchRule: "",
+				Start:     initialIndex,
+				End:       index,
+			})
+		}
 	}
+	return paths
 }
 
 // atob converts str to byte given the base.
@@ -379,26 +427,37 @@ func strmin(r byte) byte {
 	return r
 }
 
-// endRep returns true if a new repetition should be tested or not.
+// keepGoing returns true if a new repetition should be tested or not.
 // If the repetition has no max, it returns whether input has been
 // totally consumed.
 // Else, it checks if input has been totally consumed AND if there
 // could be other repetitions.
-func endRep(rep repetition, input []byte, index, y int) bool {
-	if rep.max == inf {
-		return index < len(input)
+func keepGoing(rep repetition, input []byte, index, y int) bool {
+	// Find if could handle the length of this repetition
+	// considering its type
+	couldHandle := true
+	switch v := rep.element.(type) {
+	case elemNumVal:
+		// Check only one byte
+		couldHandle = index < len(input)
+
+	case elemCharVal:
+		// Check current index+length of char value string is not longer than the input
+		couldHandle = index+len(v.values)-1 < len(input)
+
+	case elemProseVal:
+		panic("elemProseVal")
 	}
-	return index < len(input) && y < rep.max
+
+	// If no maximum repetition, only bound to input length thus
+	// if it could handle its consumption given repetition's type
+	if rep.max == inf {
+		return couldHandle
+	}
+	// If has a maximum repetition, check could handle AND will remain
+	// under boundary.
+	return couldHandle && y < rep.max
 }
-
-type ErrParse struct{}
-
-func (err ErrParse) Error() string {
-	// TODO implement parse error message
-	return ""
-}
-
-var _ error = (*ErrParse)(nil)
 
 // getRule returns the rule by the given rulename, wether
 // it is a core rule or present in the grammar.
@@ -412,26 +471,29 @@ func getRule(rulename string, grammar *Grammar) *rule {
 // ABNF is the pre-computed ABNF grammar.
 var ABNF = &Grammar{
 	rulemap: map[string]*rule{
-		abnfRulelist.name:      abnfRulelist,
-		abnfRule.name:          abnfRule,
-		abnfRulename.name:      abnfRulename,
-		abnfDefinedAs.name:     abnfDefinedAs,
-		abnfElements.name:      abnfElements,
-		abnfCWsp.name:          abnfCWsp,
-		abnfCNl.name:           abnfCNl,
-		abnfComment.name:       abnfComment,
-		abnfAlternation.name:   abnfAlternation,
-		abnfConcatenation.name: abnfConcatenation,
-		abnfRepetition.name:    abnfRepetition,
-		abnfRepeat.name:        abnfRepeat,
-		abnfElement.name:       abnfElement,
-		abnfGroup.name:         abnfGroup,
-		abnfOption.name:        abnfOption,
-		abnfCharVal.name:       abnfCharVal,
-		abnfNumVal.name:        abnfNumVal,
-		abnfBinVal.name:        abnfBinVal,
-		abnfDecVal.name:        abnfDecVal,
-		abnfHexVal.name:        abnfHexVal,
-		abnfProseVal.name:      abnfProseVal,
+		abnfRulelist.name:              abnfRulelist,
+		abnfRule.name:                  abnfRule,
+		abnfRulename.name:              abnfRulename,
+		abnfDefinedAs.name:             abnfDefinedAs,
+		abnfElements.name:              abnfElements,
+		abnfCWsp.name:                  abnfCWsp,
+		abnfCNl.name:                   abnfCNl,
+		abnfComment.name:               abnfComment,
+		abnfAlternation.name:           abnfAlternation,
+		abnfConcatenation.name:         abnfConcatenation,
+		abnfRepetition.name:            abnfRepetition,
+		abnfRepeat.name:                abnfRepeat,
+		abnfElement.name:               abnfElement,
+		abnfGroup.name:                 abnfGroup,
+		abnfOption.name:                abnfOption,
+		abnfCharVal.name:               abnfCharVal,
+		abnfCaseInsensitiveString.name: abnfCaseInsensitiveString,
+		abnfCaseSensitiveString.name:   abnfCaseSensitiveString,
+		abnfQuotedString.name:          abnfQuotedString,
+		abnfNumVal.name:                abnfNumVal,
+		abnfBinVal.name:                abnfBinVal,
+		abnfDecVal.name:                abnfDecVal,
+		abnfHexVal.name:                abnfHexVal,
+		abnfProseVal.name:              abnfProseVal,
 	},
 }
