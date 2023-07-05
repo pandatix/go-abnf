@@ -93,11 +93,16 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) (*Path, error) {
 
 	// Parse input with grammar's initial rule
 	possibilites := solveAlt(grammar, rootRule.alternation, input, 0)
-	if len(possibilites) != 1 {
-		return nil, fmt.Errorf("got %d possibilites, expected 1", len(possibilites))
+
+	// Look for solutions that consumed the whole input
+	outPoss := []*Path{}
+	for _, poss := range possibilites {
+		if poss.End == len(input) {
+			outPoss = append(outPoss, poss)
+		}
 	}
-	if possibilites[len(possibilites)-1].End != len(input) {
-		return nil, fmt.Errorf("got no possibilities")
+	if len(outPoss) != 1 {
+		return nil, fmt.Errorf("got %d possibilities, expected 1", len(outPoss))
 	}
 
 	return &Path{
@@ -135,8 +140,21 @@ func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Pat
 			for _, cntPoss := range cntPossibilities {
 				possibilities := solveRep(grammar, rep, input, cntPoss.End)
 				for _, poss := range possibilities {
+					// If the possibility is the empty path, don't append the empty one
+					if poss.Start == poss.End {
+						tmpPossibilities = append(tmpPossibilities, cntPoss)
+						continue
+					}
+
+					// Remove empty traversal previous subpath if necessary
+					subs := cntPoss.Subpaths
+					lastSub := subs[len(subs)-1]
+					if lastSub.Start == lastSub.End {
+						subs = subs[:len(subs)-1]
+					}
+
 					tmpPossibilities = append(tmpPossibilities, &Path{
-						Subpaths:  append(cntPoss.Subpaths, poss),
+						Subpaths:  append(subs, poss),
 						MatchRule: "",
 						Start:     index,
 						End:       poss.End,
@@ -157,15 +175,16 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 		return []*Path{}
 	}
 
-	// Find first repetition paths
+	// Find first repetition paths.
 	paths := solveElem(grammar, rep.element, input, index)
+	pindex := 0
 
 	y := 1
 	kg := keepGoing(rep, input, index, y)
 
 	for kg {
 		iterPaths := []*Path{}
-		for _, poss := range paths {
+		for _, poss := range paths[pindex:] {
 			elemPossibilities := solveElem(grammar, rep.element, input, poss.End)
 			for _, elemPoss := range elemPossibilities {
 				iterPaths = append(iterPaths, &Path{
@@ -176,6 +195,7 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 				})
 			}
 		}
+		pindex += len(iterPaths)
 
 		// Prepare for next iteration
 		y++
@@ -225,12 +245,11 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 		}
 
 	case elemOption:
-		possibilities := solveRep(grammar, repetition{
+		paths = solveRep(grammar, repetition{
 			min:     0,
 			max:     1,
 			element: v.alternation,
 		}, input, index)
-		paths = append(paths, possibilities...)
 
 	case elemGroup:
 		paths = solveAlt(grammar, v.alternation, input, index)
