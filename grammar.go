@@ -246,9 +246,11 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 
 	case elemOption:
 		paths = solveRep(grammar, repetition{
-			min:     0,
-			max:     1,
-			element: v.alternation,
+			min: 0,
+			max: 1,
+			element: elemGroup{
+				alternation: v.alternation,
+			},
 		}, input, index)
 
 	case elemGroup:
