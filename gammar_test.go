@@ -22,11 +22,14 @@ var noobAbnf []byte
 //go:embed testdata/rulelist.abnf
 var rulelistAbnf []byte
 
+//go:embed testdata/rule.abnf
+var ruleAbnf []byte
+
 //go:embed testdata/abnf.abnf
 var abnfAbnf []byte
 
 //go:embed testdata/fixed-abnf.abnf
-var fixedabnfAbnf []byte
+var fixedAbnfAbnf []byte
 
 //go:embed testdata/fixed-abnf-raw.abnf
 var fixedAbnfRawAbnf []byte
@@ -58,6 +61,10 @@ func Test_U_ParseABNF(t *testing.T) {
 			Input:     rulelistAbnf,
 			ExpectErr: false,
 		},
+		"rule": {
+			Input:     ruleAbnf,
+			ExpectErr: false,
+		},
 		"abnf": {
 			// This test validates we can parse ABNF using ABNF grammar
 			// and the ABNF structural model :)
@@ -68,7 +75,7 @@ func Test_U_ParseABNF(t *testing.T) {
 			// This test validates we can parse ABNF once fixed by erratum
 			// 2968+3076 and RFC 7405 using ABNF grammar and the ABNF
 			// structural mode :))
-			Input:     fixedabnfAbnf,
+			Input:     fixedAbnfAbnf,
 			ExpectErr: false,
 		},
 		"fixed-abnf-raw": {

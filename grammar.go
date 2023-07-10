@@ -1,6 +1,7 @@
 package goabnf
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -101,8 +102,11 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) (*Path, error) {
 			outPoss = append(outPoss, poss)
 		}
 	}
-	if len(outPoss) != 1 {
-		return nil, fmt.Errorf("got %d possibilities, expected 1", len(outPoss))
+	if len(outPoss) == 0 {
+		return nil, errors.New("got no possibilities")
+	}
+	if len(outPoss) > 1 {
+		panic("multiple solves, please open an issue. This could eventually need an Erratum from IETF tracking")
 	}
 
 	return &Path{
@@ -147,7 +151,9 @@ func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Pat
 					}
 
 					// Remove empty traversal previous subpath if necessary
-					subs := cntPoss.Subpaths
+					// subs := cntPoss.Subpaths
+					subs := make([]*Path, len(cntPoss.Subpaths))
+					copy(subs, cntPoss.Subpaths)
 					lastSub := subs[len(subs)-1]
 					if lastSub.Start == lastSub.End {
 						subs = subs[:len(subs)-1]
@@ -195,7 +201,6 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 				})
 			}
 		}
-		pindex += len(iterPaths)
 
 		// Prepare for next iteration
 		y++
@@ -208,6 +213,7 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 		// If there exist solutions in the given interval, keep them
 		// for future iterations.
 		if y >= rep.min {
+			pindex += len(paths) - pindex
 			paths = append(paths, iterPaths...)
 		}
 	}
