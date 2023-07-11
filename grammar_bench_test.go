@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-var Gpath *Path
+var Ggrammar *Grammar
 var Gerr error
 
 func BenchmarkParseABNF(b *testing.B) {
-	var path *Path
+	var grammar *Grammar
 	var err error
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		path, err = ParseABNF(abnfAbnf)
+		grammar, err = ParseABNF(abnfAbnf)
 	}
-	Gpath = path
+	Ggrammar = grammar
 	Gerr = err
 }

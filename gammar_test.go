@@ -135,3 +135,13 @@ func Test_U_Atob(t *testing.T) {
 		})
 	}
 }
+
+func Test_U_ABNFParseItself(t *testing.T) {
+	t.Parallel()
+
+	assert := assert.New(t)
+
+	str := ABNF.String()
+	_, err := ParseABNF([]byte(str))
+	assert.Nil(err)
+}

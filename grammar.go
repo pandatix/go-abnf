@@ -3,7 +3,6 @@ package goabnf
 import (
 	"errors"
 	"fmt"
-	"strings"
 )
 
 // Grammar represents an ABNF grammar as defined by RFC 5234.
@@ -31,14 +30,17 @@ func (g *Grammar) Validate(input []byte) bool {
 	return false
 }
 
-// String returns string representation of the grammar.
+// String returns string representation of the grammar that is valid
+// according to the specification.
+// This notably imply the use of CRLF instead of LF, and does not
+// preserve the initial order nor pretty print it.
 // TODO implement PrettyPrint
 func (g *Grammar) String() string {
 	str := ""
 	for _, rule := range g.rulemap {
-		str += rule.String() + "\n"
+		str += rule.String() + "\r\n"
 	}
-	return strings.TrimSuffix(str, "\n")
+	return str
 }
 
 // Path represents a portion of an input that matched a rule from
@@ -68,16 +70,32 @@ type Path struct {
 }
 
 // ParseABNF is a helper facilitating the call to Parse using the
-// pre-computed ABNF grammar and evaluates the resulting grammar
-// so the returned one is ready for parsing.
-func ParseABNF(input []byte) (*Path, error) {
-	g, err := Parse(input, ABNF, "rulelist")
+// pre-computed ABNF grammar and lex the resulting to produce a
+// grammar so the returned one is ready to use.
+func ParseABNF(input []byte) (*Grammar, error) {
+	// Parse input with ABNF grammar
+	path, err := Parse(input, ABNF, "rulelist")
 	if err != nil {
 		return nil, err
 	}
-	// TODO lex grammar
+
+	// Lex path with ABNF grammar
+	g, err := lexAbnf(path)
+	if err != nil {
+		return nil, err
+	}
+
 	// TODO validate GST => all rules (dependency) exist
+
 	return g, nil
+}
+
+func lexAbnf(path *Path) (*Grammar, error) {
+	// TODO implement
+	// Possibilities
+	// 1. Make use of reflect with attribute tag
+	// 2. Make use of interface
+	return nil, nil
 }
 
 // Parse parses an ABNF-compliant input using a grammar.
