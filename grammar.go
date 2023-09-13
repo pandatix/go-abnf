@@ -503,13 +503,17 @@ func LexABNF(input []byte, path *Path) *Grammar {
 	return lexABNF(input, path).(*Grammar)
 }
 
-// XXX can't handle empty lines (only c-nl for instance)
 func lexABNF(input []byte, path *Path) any {
 	switch path.MatchRule {
 	case abnfRulelist.name:
 		mp := map[string]*rule{}
-		rl := lexABNF(input, path.Subpaths[0]).(rule)
-		mp[rl.name] = &rl
+
+		// Skip heading empty line if exist
+		if path.Subpaths[0].MatchRule != "" {
+			rl := lexABNF(input, path.Subpaths[0]).(rule)
+			mp[rl.name] = &rl
+		}
+
 		for i := 1; i < len(path.Subpaths); i++ {
 			rl := path.Subpaths[i].Subpaths[0]
 
