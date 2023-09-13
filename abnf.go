@@ -156,3 +156,33 @@ const (
 	statSeries status = iota
 	statRange
 )
+
+// ABNF is the pre-computed ABNF grammar.
+var ABNF = &Grammar{
+	rulemap: map[string]*rule{
+		abnfRulelist.name:              abnfRulelist,
+		abnfRule.name:                  abnfRule,
+		abnfRulename.name:              abnfRulename,
+		abnfDefinedAs.name:             abnfDefinedAs,
+		abnfElements.name:              abnfElements,
+		abnfCWsp.name:                  abnfCWsp,
+		abnfCNl.name:                   abnfCNl,
+		abnfComment.name:               abnfComment,
+		abnfAlternation.name:           abnfAlternation,
+		abnfConcatenation.name:         abnfConcatenation,
+		abnfRepetition.name:            abnfRepetition,
+		abnfRepeat.name:                abnfRepeat,
+		abnfElement.name:               abnfElement,
+		abnfGroup.name:                 abnfGroup,
+		abnfOption.name:                abnfOption,
+		abnfCharVal.name:               abnfCharVal,
+		abnfCaseInsensitiveString.name: abnfCaseInsensitiveString,
+		abnfCaseSensitiveString.name:   abnfCaseSensitiveString,
+		abnfQuotedString.name:          abnfQuotedString,
+		abnfNumVal.name:                abnfNumVal,
+		abnfBinVal.name:                abnfBinVal,
+		abnfDecVal.name:                abnfDecVal,
+		abnfHexVal.name:                abnfHexVal,
+		abnfProseVal.name:              abnfProseVal,
+	},
+}

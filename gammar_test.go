@@ -2,10 +2,14 @@ package goabnf
 
 import (
 	_ "embed"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
+
+//go:embed testdata/void.abnf
+var voidAbnf []byte
 
 //go:embed testdata/atomic.abnf
 var atomicAbnf []byte
@@ -25,6 +29,9 @@ var rulelistAbnf []byte
 //go:embed testdata/rule.abnf
 var ruleAbnf []byte
 
+//go:embed testdata/element.abnf
+var elementAbnf []byte
+
 //go:embed testdata/abnf.abnf
 var abnfAbnf []byte
 
@@ -41,6 +48,10 @@ func Test_U_ParseABNF(t *testing.T) {
 		Input     []byte
 		ExpectErr bool
 	}{
+		"void": {
+			Input:     voidAbnf,
+			ExpectErr: false,
+		},
 		"atomic": {
 			Input:     atomicAbnf,
 			ExpectErr: false,
@@ -63,6 +74,10 @@ func Test_U_ParseABNF(t *testing.T) {
 		},
 		"rule": {
 			Input:     ruleAbnf,
+			ExpectErr: false,
+		},
+		"element": {
+			Input:     elementAbnf,
 			ExpectErr: false,
 		},
 		"abnf": {
@@ -141,7 +156,27 @@ func Test_U_ABNFParseItself(t *testing.T) {
 
 	assert := assert.New(t)
 
-	str := ABNF.String()
-	_, err := ParseABNF([]byte(str))
+	// Test the hardcoded ABNF is:
+	// - valid (string method works)
+	// - complete (ABNF representation of ABNF can be parsed by ABNF)
+	hardcoded := ABNF.ABNF()
+	fmt.Printf("hardcoded: %v\n", hardcoded)
+	g, err := ParseABNF([]byte(hardcoded))
+	if !assert.Nil(err) {
+		t.FailNow()
+	}
+
+	// 1a
+	fresh := g.ABNF()
+	fmt.Printf("fresh: %v\n", fresh)
+	ng, err := ParseABNF([]byte(fresh))
+	assert.Equal(g, ng)
+	assert.Nil(err)
+
+	assert.Equal(ABNF, ng)
+
+	// 1b
+	sol, err := Parse([]byte(fresh), g, "rulelist")
+	assert.NotNil(sol)
 	assert.Nil(err)
 }
