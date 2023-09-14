@@ -97,6 +97,26 @@ func Test_U_ParseABNF(t *testing.T) {
 			Input:     fixedAbnfRawAbnf,
 			ExpectErr: false,
 		},
+		"Fuzz_9de7f1cac25b4c59": {
+			// This fuzz crasher enabled detecting invalid repetition's repeat
+			// min/max values extraction.
+			Input:     []byte("A=012(\"\")\r\n"),
+			ExpectErr: false,
+		},
+		"Fuzz_9de7f1cac25b4c59 variant 1": {
+			Input:     []byte("A=*012(\"\")\r\n"),
+			ExpectErr: false,
+		},
+		"Fuzz_9de7f1cac25b4c59 variant 2": {
+			Input:     []byte("A=012*(\"\")\r\n"),
+			ExpectErr: false,
+		},
+		"Fuzz_6c652486622bc04e": {
+			// This fuzz crasher enabled detecting bad group's alternation
+			// extraction.
+			Input:     []byte("A=(  \"\")\r\n"),
+			ExpectErr: false,
+		},
 	}
 
 	for testname, tt := range tests {

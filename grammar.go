@@ -611,19 +611,12 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		}, nil
 
 	case abnfGroup.name:
-		var alt *Path
-		switch len(path.Subpaths) {
-		case 3:
-			alt = path.Subpaths[1]
-		case 4:
-			// Localise "*c-wsp" hit
-			loc := 1 // second subpath until proven false
-			if path.Subpaths[1].MatchRule == "c-wsp" {
-				loc = 2
+		alt := (*Path)(nil)
+		for _, sub := range path.Subpaths {
+			if sub.MatchRule == "alternation" {
+				alt = sub
+				break
 			}
-			alt = path.Subpaths[loc]
-		case 5:
-			alt = path.Subpaths[2]
 		}
 		alttmp, err := lexABNF(input, alt)
 		if err != nil {
@@ -687,40 +680,37 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			element = path.Subpaths[0]
 		case 2:
 			repeat := path.Subpaths[0].Subpaths[0].Subpaths[0] // -> option (hit) -> repeat -> hit
-			switch len(repeat.Subpaths) {
-			case 1:
-				dstr := string(input[repeat.Subpaths[0].Start:repeat.Subpaths[0].End])
-				if dstr == "*" {
-					min, max = 0, inf
-				} else {
-					d, _ := strconv.Atoi(dstr)
-					min, max = d, d
-				}
-				element = path.Subpaths[1]
-			case 2:
-				// Localise "*" hit, whether first or second
-				loc := 0 // first subpath until proven false
-				if repeat.Subpaths[1].Subpaths == nil {
-					loc = 1
-				}
+			element = path.Subpaths[1]
 
-				switch loc {
-				case 0:
-					// max boundary
-					dstr := string(input[repeat.Subpaths[1].Start:repeat.Subpaths[1].End])
-					min = 0
-					max, _ = strconv.Atoi(dstr)
-				case 1:
-					// min boundary
-					dstr := string(input[repeat.Subpaths[0].Start:repeat.Subpaths[0].End])
-					min, _ = strconv.Atoi(dstr)
-					max = inf
+			// Look for "*" to determine behavior
+			spi := (*int)(nil)
+			for i := repeat.Start; i < repeat.End; i++ {
+				if input[i] == '*' {
+					spi = &i
+					break
 				}
-				element = path.Subpaths[1]
-			case 3:
-				min, _ = strconv.Atoi(string(input[repeat.Subpaths[0].Start:repeat.Subpaths[0].End]))
-				max, _ = strconv.Atoi(string(input[repeat.Subpaths[2].Start:repeat.Subpaths[2].End]))
-				element = repeat.Subpaths[1]
+			}
+
+			if spi == nil {
+				// If not found, should be exact repetition match
+				dstr := string(input[repeat.Start:repeat.End])
+				d, _ := strconv.Atoi(dstr)
+				min, max = d, d
+			} else {
+				// Set min
+				dstr := string(input[repeat.Start:*spi])
+				if dstr == "" {
+					min = 0
+				} else {
+					min, _ = strconv.Atoi(dstr)
+				}
+				// Set max
+				dstr = string(input[*spi+1 : repeat.End])
+				if dstr == "" {
+					max = inf
+				} else {
+					max, _ = strconv.Atoi(dstr)
+				}
 			}
 		}
 
