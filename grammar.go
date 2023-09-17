@@ -503,11 +503,11 @@ func getRule(rulename string, rulemap map[string]*rule) *rule {
 
 // LexABNF is the lexer for the ABNF structrual model implemented.
 func LexABNF(input []byte, path *Path) (*Grammar, error) {
-	g, err := lexABNF(input, path)
+	gr, err := lexABNF(input, path)
 	if err != nil {
 		return nil, err
 	}
-	return g.(*Grammar), nil
+	return gr.(*Grammar), nil
 }
 
 func lexABNF(input []byte, path *Path) (any, error) {
@@ -526,22 +526,22 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		}
 
 		for i := 1; i < len(path.Subpaths); i++ {
-			rl := path.Subpaths[i].Subpaths[0]
+			sub := path.Subpaths[i].Subpaths[0]
 
 			// Skip empty lines
-			if rl.MatchRule != "rule" {
+			if sub.MatchRule != "rule" {
 				continue
 			}
-			rltmp, err := lexABNF(input, rl)
+			rltmp, err := lexABNF(input, sub)
 			if err != nil {
 				return nil, err
 			}
-			rule := rltmp.(rule)
+			rl := rltmp.(rule)
 
-			if r := getRule(rule.name, mp); r != nil {
-				return nil, fmt.Errorf("rule %s already exist", rule.name)
+			if r := getRule(rl.name, mp); r != nil {
+				return nil, fmt.Errorf("rule %s already exist", rl.name)
 			}
-			mp[rule.name] = &rule
+			mp[rl.name] = &rl
 		}
 		return &Grammar{
 			rulemap: mp,
@@ -549,13 +549,11 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 	case abnfRule.name:
 		rulename := string(input[path.Subpaths[0].Start:path.Subpaths[0].End])
-		alt := path.Subpaths[2].Subpaths[0] // -> rule -> elements -> alternation
-
-		alttmp, err := lexABNF(input, alt)
+		pth := path.Subpaths[2].Subpaths[0] // -> rule -> elements -> alternation
+		alttmp, err := lexABNF(input, pth)
 		if err != nil {
 			return nil, err
 		}
-
 		return rule{
 			name:        rulename,
 			alternation: alttmp.(alternation),
@@ -568,7 +566,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 	case abnfAlternation.name:
 		// Extract first concatenation, must exist
-		concatenations := make([]concatenation, 1)
+		concatenations := make([]concatenation, 0, 1)
 		cnttmp, err := lexABNF(input, path.Subpaths[0])
 		if err != nil {
 			return nil, err
@@ -628,7 +626,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 	case abnfConcatenation.name:
 		// Extract first repetition, must exist
-		repetitions := make([]repetition, 1)
+		repetitions := make([]repetition, 0, 1)
 		reptmp, err := lexABNF(input, path.Subpaths[0])
 		if err != nil {
 			return nil, err
@@ -659,7 +657,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 		// Following are hits too, last of each subpaths is another concatenation
 		for _, sub := range subs[irep+1:] {
-			reptmp, err = lexABNF(input, sub.Subpaths[len(sub.Subpaths)-1])
+			reptmp, err := lexABNF(input, sub.Subpaths[len(sub.Subpaths)-1])
 			if err != nil {
 				return nil, err
 			}
@@ -757,6 +755,15 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		return elemCharVal{
 			sensitive: sensitive,
 			values:    value,
+		}, nil
+
+	case abnfProseVal.name:
+		values := []string{}
+		for i := path.Start + 1; i < path.End-1; i++ {
+			values = append(values, string(input[i]))
+		}
+		return elemProseVal{
+			values: values,
 		}, nil
 
 	case abnfNumVal.name:

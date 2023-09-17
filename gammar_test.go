@@ -2,7 +2,6 @@ package goabnf
 
 import (
 	_ "embed"
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,6 +116,11 @@ func Test_U_ParseABNF(t *testing.T) {
 			Input:     []byte("A=(  \"\")\r\n"),
 			ExpectErr: false,
 		},
+		"Fuzz_395eb15ada9c6900": {
+			// This fuzz crasher enabled detecting missing prose-val lexing support.
+			Input:     []byte("A=<>\r\n"),
+			ExpectErr: false,
+		},
 	}
 
 	for testname, tt := range tests {
@@ -180,7 +184,6 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// - valid (string method works)
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
 	hardcoded := ABNF.ABNF()
-	fmt.Printf("hardcoded: %v\n", hardcoded)
 	g, err := ParseABNF([]byte(hardcoded))
 	if !assert.Nil(err) {
 		t.FailNow()
@@ -188,7 +191,6 @@ func Test_U_ABNFParseItself(t *testing.T) {
 
 	// 1a
 	fresh := g.ABNF()
-	fmt.Printf("fresh: %v\n", fresh)
 	ng, err := ParseABNF([]byte(fresh))
 	assert.Equal(g, ng)
 	assert.Nil(err)
