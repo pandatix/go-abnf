@@ -24,12 +24,14 @@ func (g *Grammar) GenerateTest(source []byte) []byte {
 }
 
 // Validate checks there exist only one path that completly consumes
-// value, hence is valide given this grammar.
+// value, hence is valide given this gramma and especially a rule.
+// Returns true iif there exists a path.
 // Notice it validates uniqueness of value as having multiple valid
 // paths may lead to inconsistencies between implementations, thus
 // leading to interpretations, bugs and maybe vulnerabilities.
-func (g *Grammar) Validate(input []byte) bool {
-	return false
+func (g *Grammar) Validate(rulename string, input []byte) bool {
+	paths, err := Parse(input, g, rulename)
+	return len(paths) != 0 && err == nil
 }
 
 // ABNF returns string representation of the grammar that is valid
@@ -76,9 +78,18 @@ type Path struct {
 // ready-to-use grammar.
 func ParseABNF(input []byte) (*Grammar, error) {
 	// Parse input with ABNF grammar
-	path, err := Parse(input, ABNF, "rulelist")
+	paths, err := Parse(input, ABNF, "rulelist")
 	if err != nil {
 		return nil, err
+	}
+	path := (*Path)(nil)
+	switch len(paths) {
+	case 0:
+		return nil, errors.New("no solution found, input ABNF grammar may be invalid")
+	case 1:
+		path = paths[0]
+	default:
+		return nil, errors.New("multiple solutions found, this should not happen. Please open an issue. This could eventually need an Erratum from IETF tracking")
 	}
 
 	// Lex path
@@ -87,7 +98,10 @@ func ParseABNF(input []byte) (*Grammar, error) {
 		return nil, err
 	}
 
-	// TODO validate all dependencies (rule) exist
+	// Validate semantics
+	if err := SemvalABNF(g); err != nil {
+		return nil, err
+	}
 
 	return g, nil
 }
@@ -97,7 +111,7 @@ func ParseABNF(input []byte) (*Grammar, error) {
 // order to look for solutions. If many are found, it raises an error.
 // If the input is invalid (gramatically, incomplete...) it returns
 // an error of type *ErrParse.
-func Parse(input []byte, grammar *Grammar, rootRulename string) (*Path, error) {
+func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error) {
 	// Select root rule to begin with
 	rootRule := getRule(rootRulename, grammar.rulemap)
 	if rootRule == nil {
@@ -108,19 +122,15 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) (*Path, error) {
 	possibilites := solveAlt(grammar, rootRule.alternation, input, 0)
 
 	// Look for solutions that consumed the whole input
-	outPoss := (*Path)(nil)
+	outPoss := []*Path{}
 	for _, poss := range possibilites {
 		if poss.End == len(input) {
-			if outPoss != nil {
-				panic("multiple solves, please open an issue. This could eventually need an Erratum from IETF tracking")
-			}
-			outPoss = poss.Subpaths[0]
+			pth := poss.Subpaths[0]
+			pth.MatchRule = rootRulename
+			outPoss = append(outPoss, pth)
 		}
 	}
-	if outPoss == nil {
-		return nil, errors.New("got no possibilities")
-	}
-	outPoss.MatchRule = rootRulename
+
 	return outPoss, nil
 }
 
@@ -827,4 +837,51 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		to = len(input)
 	}
 	panic(fmt.Sprintf("unhandlable path from %d to %d: \"%s\" ; sneek peak around \"%s\"", path.Start, path.End, input[path.Start:path.End], input[from:to]))
+}
+
+// SemvalABNF proceed to semantic validations of an ABNF grammar.
+// It currently support the following checks:
+// - for all rules, its dependencies (rules) exist
+// - for repetition, min <= max
+// To update this list, please open an issue.
+func SemvalABNF(grammar *Grammar) error {
+	// Check all dependencies exist
+	for _, rule := range grammar.rulemap {
+		deps := getDependencies(rule.alternation)
+		for _, dep := range deps {
+			r := getRule(dep, grammar.rulemap)
+			if r == nil {
+				return fmt.Errorf("missing dependency (rule) %s", dep)
+			}
+		}
+	}
+
+	for _, rule := range grammar.rulemap {
+		if err := semvalAlternation(rule.alternation); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func semvalAlternation(alt alternation) error {
+	for _, concat := range alt.concatenations {
+		for _, rep := range concat.repetitions {
+			// min <= max
+			if rep.max != inf && rep.min > rep.max {
+				return fmt.Errorf("invalid semantic of input ABNF grammar for repetition %s", rep.String())
+			}
+			switch elem := rep.element.(type) {
+			case elemGroup:
+				if err := semvalAlternation(elem.alternation); err != nil {
+					return err
+				}
+			case elemOption:
+				if err := semvalAlternation(elem.alternation); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
