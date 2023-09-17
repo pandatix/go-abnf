@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Grammar represents an ABNF grammar as defined by RFC 5234.
@@ -98,8 +99,8 @@ func ParseABNF(input []byte) (*Grammar, error) {
 // an error of type *ErrParse.
 func Parse(input []byte, grammar *Grammar, rootRulename string) (*Path, error) {
 	// Select root rule to begin with
-	rootRule, ok := grammar.rulemap[rootRulename]
-	if !ok {
+	rootRule := getRule(rootRulename, grammar.rulemap)
+	if rootRule == nil {
 		return nil, fmt.Errorf("root rule %s not found", rootRulename)
 	}
 
@@ -493,12 +494,20 @@ func keepGoing(rep repetition, input []byte, index, y int) bool {
 }
 
 // getRule returns the rule by the given rulename, wether
-// it is a core rule or present in the grammar.
+// it is a core rule or present in the grammar, or nil if not found.
+// It validates the RFC 5234 Section 2.1 "rule names are case insensitive".
 func getRule(rulename string, rulemap map[string]*rule) *rule {
-	if r, ok := coreRules[rulename]; ok {
-		return r
+	for _, coreRule := range coreRules {
+		if strings.EqualFold(rulename, coreRule.name) {
+			return coreRule
+		}
 	}
-	return rulemap[rulename]
+	for _, rule := range rulemap {
+		if strings.EqualFold(rulename, rule.name) {
+			return rule
+		}
+	}
+	return nil
 }
 
 // LexABNF is the lexer for the ABNF structrual model implemented.
@@ -538,7 +547,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			}
 			rl := rltmp.(rule)
 
-			if r := getRule(rl.name, mp); r != nil {
+			if rule := getRule(rl.name, mp); rule != nil {
 				return nil, fmt.Errorf("rule %s already exist", rl.name)
 			}
 			mp[rl.name] = &rl
@@ -584,7 +593,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		subs := path.Subpaths[1].Subpaths
 		icnt := 1
 		for {
-			if subs[icnt].MatchRule == "concatenation" {
+			if strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.name) {
 				break
 			}
 			icnt++
@@ -611,7 +620,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfGroup.name:
 		alt := (*Path)(nil)
 		for _, sub := range path.Subpaths {
-			if sub.MatchRule == "alternation" {
+			if strings.EqualFold(sub.MatchRule, abnfAlternation.name) {
 				alt = sub
 				break
 			}
@@ -644,7 +653,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		subs := path.Subpaths[1].Subpaths
 		irep := 1
 		for {
-			if subs[irep].MatchRule == "repetition" {
+			if strings.EqualFold(subs[irep].MatchRule, abnfRepetition.name) {
 				break
 			}
 			irep++
@@ -725,7 +734,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfOption.name:
 		ialt := 1
 		for {
-			if path.Subpaths[ialt].MatchRule == "alternation" {
+			if strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.name) {
 				break
 			}
 			ialt++
@@ -740,13 +749,13 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 	case abnfCharVal.name:
 		sensitive := false // by default insensitive (cf. RFC 7405)
-		if path.Subpaths[0].MatchRule == abnfCaseSensitiveString.name {
+		if strings.EqualFold(path.Subpaths[0].MatchRule, abnfCaseSensitiveString.name) {
 			sensitive = true
 		}
 
 		value := []byte{}
 		for _, sub := range path.Subpaths[0].Subpaths {
-			if sub.MatchRule == abnfQuotedString.name {
+			if strings.EqualFold(sub.MatchRule, abnfQuotedString.name) {
 				value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
 				break
 			}
