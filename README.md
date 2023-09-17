@@ -9,7 +9,7 @@
 	<a href="https://github.com/pandatix/abnf/actions/workflows/codeql-analysis.yaml"><img src="https://img.shields.io/github/actions/workflow/status/pandatix/abnf/codeql-analysis.yaml?style=for-the-badge&label=CodeQL" alt="CodeQL"></a>
 	<br>
 	<a href="https://securityscorecards.dev/viewer/?uri=github.com/pandatix/abnf"><img src="https://img.shields.io/ossf-scorecard/github.com/pandatix/abnf?label=openssf%20scorecard&style=for-the-badge" alt="OpenSSF Scoreboard"></a>
-	<a href="https://bestpractices.coreinfrastructure.org/en/projects/7519"><img src="https://img.shields.io/cii/summary/7519?style=for-the-badge&label=openssf%20best%20practices" alt="OpenSSF Best Practices Summary"></a>
+	<a href="https://bestpractices.coreinfrastructure.org/en/projects/7840"><img src="https://img.shields.io/cii/summary/7840?style=for-the-badge&label=openssf%20best%20practices" alt="OpenSSF Best Practices Summary"></a>
 </div>
 
 Go module to handle Augmented Backus-Naur Form (ABNF), providing a large API.
