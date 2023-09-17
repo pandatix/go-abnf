@@ -42,44 +42,54 @@ var fixedAbnfRawAbnf []byte
 
 var testsParseAbnf = map[string]struct {
 	Input     []byte
+	Validate  bool
 	ExpectErr bool
 }{
 	"void": {
 		Input:     voidAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"atomic": {
 		Input:     atomicAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"platypus": {
 		Input:     platypusAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"fun": {
 		Input:     funAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"noob": {
 		Input:     noobAbnf,
+		Validate:  false,
 		ExpectErr: true, // Due to LF (expected CRLF)
 	},
 	"rulelist": {
 		Input:     rulelistAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"rule": {
 		Input:     ruleAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"element": {
 		Input:     elementAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"abnf": {
 		// This test validates we can parse ABNF using ABNF grammar
 		// and the ABNF structural model :)
 		Input:     abnfAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"fixed-abnf": {
@@ -87,35 +97,42 @@ var testsParseAbnf = map[string]struct {
 		// 2968+3076 and RFC 7405 using ABNF grammar and the ABNF
 		// structural mode :))
 		Input:     fixedAbnfAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"fixed-abnf-raw": {
 		Input:     fixedAbnfRawAbnf,
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"Fuzz_9de7f1cac25b4c59": {
 		// This fuzz crasher enabled detecting invalid repetition's repeat
 		// min/max values extraction.
 		Input:     []byte("A=012(\"\")\r\n"),
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"Fuzz_9de7f1cac25b4c59 variant 1": {
 		Input:     []byte("A=*012(\"\")\r\n"),
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"Fuzz_9de7f1cac25b4c59 variant 2": {
 		Input:     []byte("A=012*(\"\")\r\n"),
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"Fuzz_6c652486622bc04e": {
 		// This fuzz crasher enabled detecting bad group's alternation
 		// extraction.
 		Input:     []byte("A=(  \"\")\r\n"),
+		Validate:  false,
 		ExpectErr: false,
 	},
 	"Fuzz_395eb15ada9c6900": {
 		// This fuzz crasher enabled detecting missing prose-val lexing support.
 		Input:     []byte("A=<>\r\n"),
+		Validate:  false,
 		ExpectErr: false,
 	},
 }
@@ -128,7 +145,7 @@ func Test_U_ParseABNF(t *testing.T) {
 			assert := assert.New(t)
 
 			assert.NotEmpty(tt.Input)
-			_, err := ParseABNF(tt.Input)
+			_, err := ParseABNF(tt.Input, WithValidation(tt.Validate))
 
 			if tt.ExpectErr {
 				assert.NotNil(err)
@@ -228,7 +245,7 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// Test the hardcoded ABNF is:
 	// - valid (string method works)
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
-	hardcoded := ABNF.ABNF()
+	hardcoded := ABNF.String()
 	g, err := ParseABNF([]byte(hardcoded))
 	if !assert.Nil(err) {
 		t.FailNow()
@@ -238,7 +255,7 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// - valid (string method works)
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
 	// (1a) with the hardcoded ABNF grammar
-	fresh := g.ABNF()
+	fresh := g.String()
 	ng, err := ParseABNF([]byte(fresh))
 	assert.Equal(g, ng)
 	assert.Nil(err)

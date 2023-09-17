@@ -13,16 +13,6 @@ type Grammar struct {
 	rulemap map[string]*rule
 }
 
-// GenerateTests is an experimental feature that consumes a binary
-// input as a random source for travelling through the grammar
-// resulting in a pseudo-random (reproductible) output.
-// It is a good source for testing and fuzzing parsers during
-// validation or optimization.
-func (g *Grammar) GenerateTest(source []byte) []byte {
-	// XXX implement the *Grammar.GenerateTest method
-	return nil
-}
-
 // Validate checks there exist only one path that completly consumes
 // value, hence is valide given this gramma and especially a rule.
 // Returns true iif there exists a path.
@@ -34,12 +24,11 @@ func (g *Grammar) Validate(rulename string, input []byte) bool {
 	return len(paths) != 0 && err == nil
 }
 
-// ABNF returns string representation of the grammar that is valid
+// String returns the representation of the grammar that is valid
 // according to the ABNF specifications/RFCs.
 // This notably imply the use of CRLF instead of LF, and does not
 // preserve the initial order nor pretty print it.
-// TODO implement PrettyPrint
-func (g *Grammar) ABNF() string {
+func (g *Grammar) String() string {
 	str := ""
 	for _, rule := range g.rulemap {
 		str += rule.String() + "\r\n"
@@ -47,23 +36,26 @@ func (g *Grammar) ABNF() string {
 	return str
 }
 
+// TODO implement *Grammar.PrettyPrint
+func (g *Grammar) PrettyPrint() string {
+	return ""
+}
+
 // Path represents a portion of an input that matched a rule from
 // an index to another, with a composite structure.
 //
 // Notice it does not matches specifically ABNF grammar, but any
-// grammar compatible. The most common case is parsing an input with
+// compatible grammar. The most common case is parsing an input with
 // the ABNF grammar as source, which is then lexed to fall back into
-// a ready-to-go ABNF definition of this input.
+// a ready-to-go ABNF grammar of this input.
 // There may exist specific cases where you want to use another grammar
 // as source (e.g. EBNF grammar provided by parsing EBNF specification
 // input written in ABNF with the ABNF grammar as source, which as
 // itself been implemented from the ABNF specification of ABNF in the
 // ABNF structure).
-//
-// This imply that you may not deal with a parsed ABNF straightly, but
-// with the ABNF representation of your input in ABNF structure using
-// the grammar ruleset.
-// This is like a complex game, but without the fun and friends.
+// For those cases, you can use this implementation as it uses a
+// generic behavior, by parsing your source ABNF grammar first then
+// use it to validate inputs.
 type Path struct {
 	// Subpaths aka children. Ordering applies
 	Subpaths []*Path
@@ -76,7 +68,15 @@ type Path struct {
 // ParseABNF is a helper facilitating the call to Parse using the
 // pre-computed ABNF grammar and lex the resulting to produce a
 // ready-to-use grammar.
-func ParseABNF(input []byte) (*Grammar, error) {
+func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
+	// Process functional options
+	o := &options{
+		validate: true,
+	}
+	for _, opt := range opts {
+		opt.apply(o)
+	}
+
 	// Parse input with ABNF grammar
 	paths, err := Parse(input, ABNF, "rulelist")
 	if err != nil {
@@ -99,8 +99,10 @@ func ParseABNF(input []byte) (*Grammar, error) {
 	}
 
 	// Validate semantics
-	if err := SemvalABNF(g); err != nil {
-		return nil, err
+	if o.validate {
+		if err := SemvalABNF(g); err != nil {
+			return nil, err
+		}
 	}
 
 	return g, nil
@@ -844,19 +846,19 @@ func lexABNF(input []byte, path *Path) (any, error) {
 // - for all rules, its dependencies (rules) exist
 // - for repetition, min <= max
 // To update this list, please open an issue.
-func SemvalABNF(grammar *Grammar) error {
+func SemvalABNF(g *Grammar) error {
 	// Check all dependencies exist
-	for _, rule := range grammar.rulemap {
+	for _, rule := range g.rulemap {
 		deps := getDependencies(rule.alternation)
 		for _, dep := range deps {
-			r := getRule(dep, grammar.rulemap)
+			r := getRule(dep, g.rulemap)
 			if r == nil {
 				return fmt.Errorf("missing dependency (rule) %s", dep)
 			}
 		}
 	}
 
-	for _, rule := range grammar.rulemap {
+	for _, rule := range g.rulemap {
 		if err := semvalAlternation(rule.alternation); err != nil {
 			return err
 		}
