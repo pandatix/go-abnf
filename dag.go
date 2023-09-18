@@ -1,20 +1,22 @@
 package goabnf
 
 type node struct {
-	rulename       string
+	Rulename       string
 	index, lowlink int
 	onStack        bool
-	dependencies   []string
+	Dependencies   []string
 }
 
-type depgraph map[string]*node
+// Depgraph generates the
+type Depgraph map[string]*node
 
-func genDepGraph(g *Grammar) depgraph {
-	graph := depgraph{}
+// DependencyGraph creates a dependency graph
+func (g *Grammar) DependencyGraph() Depgraph {
+	graph := Depgraph{}
 	for _, rule := range g.rulemap {
 		graph[rule.name] = &node{
-			rulename:     rule.name,
-			dependencies: getDependencies(rule.alternation),
+			Rulename:     rule.name,
+			Dependencies: getDependencies(rule.alternation),
 		}
 	}
 	return graph
@@ -26,12 +28,28 @@ func getDependencies(alt alternation) []string {
 		for _, rep := range conc.repetitions {
 			switch v := rep.element.(type) {
 			case elemGroup:
-				deps = append(deps, getDependencies(v.alternation)...)
+				deps = appendDeps(deps, getDependencies(v.alternation)...)
 			case elemOption:
-				deps = append(deps, getDependencies(v.alternation)...)
+				deps = appendDeps(deps, getDependencies(v.alternation)...)
 			case elemRulename:
-				deps = append(deps, v.name)
+				deps = appendDeps(deps, v.name)
 			}
+		}
+	}
+	return deps
+}
+
+func appendDeps(deps []string, ndeps ...string) []string {
+	for _, ndep := range ndeps {
+		already := false
+		for _, dep := range deps {
+			if ndep == dep {
+				already = true
+				break
+			}
+		}
+		if !already {
+			deps = append(deps, ndep)
 		}
 	}
 	return deps
@@ -45,7 +63,7 @@ func (g *Grammar) IsDAG() bool {
 	scc := &cycle{
 		index: 0,
 		stack: []*node{},
-		dg:    genDepGraph(g),
+		dg:    g.DependencyGraph(),
 	}
 	scc.find()
 
@@ -62,7 +80,7 @@ type cycle struct {
 	stack []*node
 	sccs  [][]*node
 
-	dg depgraph
+	dg Depgraph
 }
 
 func (c *cycle) find() {
@@ -82,7 +100,7 @@ func (c *cycle) strongconnect(v *node) {
 	v.onStack = true
 
 	// Consider successors of v
-	for _, dep := range v.dependencies {
+	for _, dep := range v.Dependencies {
 		w, ok := c.dg[dep]
 		if !ok {
 			// core rules
@@ -105,7 +123,7 @@ func (c *cycle) strongconnect(v *node) {
 	if v.lowlink == v.index {
 		scc := []*node{}
 		w := (*node)(nil)
-		for w == nil || v.rulename != w.rulename {
+		for w == nil || v.Rulename != w.Rulename {
 			w = c.stack[len(c.stack)-1]
 			c.stack = c.stack[:len(c.stack)-1]
 			w.onStack = false
