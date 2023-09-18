@@ -1,17 +1,19 @@
 package goabnf
 
 type node struct {
+	rulename       string
 	index, lowlink int
 	onStack        bool
 	dependencies   []string
 }
 
-type depgraph map[string]node
+type depgraph map[string]*node
 
-func genGraph(g *Grammar) depgraph {
+func genDepGraph(g *Grammar) depgraph {
 	graph := depgraph{}
 	for _, rule := range g.rulemap {
-		graph[rule.name] = node{
+		graph[rule.name] = &node{
+			rulename:     rule.name,
 			dependencies: getDependencies(rule.alternation),
 		}
 	}
@@ -35,14 +37,15 @@ func getDependencies(alt alternation) []string {
 	return deps
 }
 
-// Find Strongly Connected Components using Tarjan's algorithm
+// IsDag find Strongly Connected Components using Tarjan's algorithm
+// and returns whether it contains cycle or not.
 // Could be improved by Nuutila's or Pearce's algorithms, or replaced
 // by Kosaraju's algorithm.
-func isDAG(g *Grammar) bool {
-	scc := &scc{
+func (g *Grammar) IsDAG() bool {
+	scc := &cycle{
 		index: 0,
-		s:     []node{},
-		dg:    genGraph(g),
+		stack: []*node{},
+		dg:    genDepGraph(g),
 	}
 	scc.find()
 
@@ -54,30 +57,60 @@ func isDAG(g *Grammar) bool {
 	return true
 }
 
-type scc struct {
+type cycle struct {
 	index int
-	s     []node
-	sccs  [][]node
+	stack []*node
+	sccs  [][]*node
 
 	dg depgraph
 }
 
-func (scc *scc) find() {
-	for _, v := range scc.dg {
+func (c *cycle) find() {
+	for _, v := range c.dg {
 		if v.index == 0 {
-			scc.strongconnect(v)
+			c.strongconnect(v)
 		}
 	}
 }
 
-func (scc *scc) strongconnect(v node) {
+func (c *cycle) strongconnect(v *node) {
 	// Set the depth index for v to the smallest unused index
-	v.index = scc.index
-	v.lowlink = scc.index
-	scc.index++
-	scc.s = append(scc.s, v)
+	v.index = c.index
+	v.lowlink = c.index
+	c.index++
+	c.stack = append(c.stack, v)
 	v.onStack = true
 
 	// Consider successors of v
-	// TODO complete
+	for _, dep := range v.dependencies {
+		w, ok := c.dg[dep]
+		if !ok {
+			// core rules
+			continue
+		}
+		if w.index == 0 {
+			// Successor w has not yet been visited; recurse on it
+			c.strongconnect(w)
+			v.lowlink = min(v.lowlink, w.lowlink)
+		} else {
+			if w.onStack {
+				// Successor w is in stack S and hence in the current SCC
+				// If w is not on stack, then (v, w) is an edge pointing
+				// to an SCC already found and must be ignored.
+				v.lowlink = min(v.lowlink, w.index)
+			}
+		}
+	}
+	// If v is a root node, pop the stack and generate an SCC
+	if v.lowlink == v.index {
+		scc := []*node{}
+		w := (*node)(nil)
+		for w == nil || v.rulename != w.rulename {
+			w = c.stack[len(c.stack)-1]
+			c.stack = c.stack[:len(c.stack)-1]
+			w.onStack = false
+			scc = append(scc, w)
+		}
+		c.sccs = append(c.sccs, scc)
+	}
 }
