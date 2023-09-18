@@ -13,13 +13,10 @@ type Grammar struct {
 	rulemap map[string]*rule
 }
 
-// Validate checks there exist only one path that completly consumes
-// value, hence is valide given this gramma and especially a rule.
-// Returns true iif there exists a path.
-// Notice it validates uniqueness of value as having multiple valid
-// paths may lead to inconsistencies between implementations, thus
-// leading to interpretations, bugs and maybe vulnerabilities.
-func (g *Grammar) Validate(rulename string, input []byte) bool {
+// IsValid checks there exist at least a path that completly consumes
+// input, hence is valide given this gramma and especially one of its
+// rule.
+func (g *Grammar) IsValid(rulename string, input []byte) bool {
 	paths, err := Parse(input, g, rulename)
 	return len(paths) != 0 && err == nil
 }
@@ -36,9 +33,27 @@ func (g *Grammar) String() string {
 	return str
 }
 
-// TODO implement *Grammar.PrettyPrint
+// PrettyPrint returns a prettified string that represents the grammar.
 func (g *Grammar) PrettyPrint() string {
-	return ""
+	// Determine maximum rulename length
+	rulenameLength := 0
+	for rulename := range g.rulemap {
+		if len(rulename) > rulenameLength {
+			rulenameLength = len(rulename)
+		}
+	}
+
+	// Construct output
+	out := ""
+	for rulename, rl := range g.rulemap {
+		spaces := ""
+		for i := 0; i < rulenameLength-len(rulename); i++ {
+			spaces += " "
+		}
+
+		out += fmt.Sprintf("%s%s = %s\r\n", rulename, spaces, rl.alternation)
+	}
+	return out
 }
 
 // Path represents a portion of an input that matched a rule from
