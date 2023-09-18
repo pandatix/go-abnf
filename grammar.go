@@ -537,7 +537,7 @@ func getRule(rulename string, rulemap map[string]*rule) *rule {
 	return nil
 }
 
-// LexABNF is the lexer for the ABNF structrual model implemented.
+// LexABNF is the lexer for the ABNF structural model implemented.
 func LexABNF(input []byte, path *Path) (*Grammar, error) {
 	gr, err := lexABNF(input, path)
 	if err != nil {
