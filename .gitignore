@@ -1,0 +1,9 @@
+# IDE files
+.vscode/*
+
+# Benchmark files
+*.pprof
+*.golden
+
+# Fuzzing files
+testdata/fuzz/*
