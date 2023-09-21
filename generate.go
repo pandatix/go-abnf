@@ -3,8 +3,20 @@ package goabnf
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"math/rand"
+	"strings"
 )
+
+type ErrCyclicRule struct {
+	Rulename string
+}
+
+var _ error = (*ErrCyclicRule)(nil)
+
+func (err ErrCyclicRule) Error() string {
+	return fmt.Sprintf("can't generate a content as the rule %s involves an unavoidable cycle", err.Rulename)
+}
 
 // Generate is an experimental feature that consumes a seed for
 // a pseudo-random number generator, used to randomly travel through
@@ -17,9 +29,9 @@ import (
 // It is a good capability for testing and fuzzing parsers during
 // testing, compliance, fuzzing or optimization.
 func (g *Grammar) Generate(seed int64, rulename string, opts ...GenerateOption) ([]byte, error) {
-	// TODO can get to crash if generation has only one path that can't end up such as "a=a\r\n"
-	// Checking the rule is not cyclic is not sufficient (e.g. ABNF's alternation)
-	// Must check this rule has the possibility to end
+	if err := checkCanGenerateSafely(g, rulename); err != nil {
+		return nil, err
+	}
 
 	// Use a pseudo-random number generator
 	rand := rand.NewSource(seed)
@@ -139,4 +151,83 @@ func WithThreshold(threshold int) thresholdOption {
 
 func (opt thresholdOption) apply(opts *genOpts) {
 	opts.threshold = int(opt)
+}
+
+// checkCanGenerateSafely returns no error if the rule can be generated
+// safely i.e. if the rule can exist without infinite recursion.
+// Factually, it checks if all involved rules have no path v such that it
+// produces a cycle (v:rule-*->rulen) AND that this path is mandatory
+// (no option, no repetition with a minimum of zero).
+func checkCanGenerateSafely(g *Grammar, rulename string) error {
+	rule := getRule(rulename, g.rulemap)
+	knownRules := map[string]struct{}{
+		rulename: {},
+	}
+	return checkCanGenerateSafelyAlt(g, knownRules, rule.alternation)
+}
+
+func checkCanGenerateSafelyAlt(g *Grammar, knownRules map[string]struct{}, alt alternation) error {
+	errs := make([]error, len(alt.concatenations))
+	for alti, concat := range alt.concatenations {
+		errs[alti] = checkCanGenerateSafelyConcat(g, knownRules, concat)
+	}
+	allErrors := true
+	for i := 0; i < len(errs) && allErrors; i++ {
+		if errs[i] == nil {
+			allErrors = false
+		}
+	}
+	if allErrors {
+		return errors.New("multiple errors")
+	}
+	return nil
+}
+
+func checkCanGenerateSafelyConcat(g *Grammar, knownRules map[string]struct{}, concat concatenation) error {
+	for _, rep := range concat.repetitions {
+		// If the repetition is not mandatory, we can escape so can
+		// generate safely.
+		if rep.min == 0 {
+			continue
+		}
+
+		// Deal with the repetition itself then.
+		switch elem := rep.element.(type) {
+		case elemRulename:
+			// Copy rules to only focus on rules that made use come here.
+			// If shared with others, the dependency graph can lead to the same rule
+			// from another path without it being a cycle, thus must be handled.
+			scopeRules := cpMap(knownRules)
+			for known := range scopeRules {
+				if strings.EqualFold(elem.name, known) {
+					return &ErrCyclicRule{
+						Rulename: elem.name,
+					}
+				}
+			}
+			rule := getRule(elem.name, g.rulemap)
+			scopeRules[elem.name] = struct{}{}
+			if err := checkCanGenerateSafelyAlt(g, scopeRules, rule.alternation); err != nil {
+				return err
+			}
+
+		case elemGroup:
+			if err := checkCanGenerateSafelyAlt(g, knownRules, elem.alternation); err != nil {
+				return err
+			}
+
+			// Other types are not considered for the following reasons:
+			// - option: equivalent to rep.min==0, escapable path even if could be cyclic
+			// - num-val, char-val, prose-val: termination paths, can't be cyclic
+		}
+	}
+	return nil
+}
+
+func cpMap[T comparable, V any](m map[T]V) map[T]V {
+	n := make(map[T]V, len(m))
+	for k, v := range m {
+		n[k] = v
+	}
+	return n
 }

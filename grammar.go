@@ -16,6 +16,7 @@ type Grammar struct {
 // IsValid checks there exist at least a path that completly consumes
 // input, hence is valide given this gramma and especially one of its
 // rule.
+// XXX can fail if the rulename can't safely generate
 func (g *Grammar) IsValid(rulename string, input []byte) bool {
 	paths, err := Parse(input, g, rulename)
 	return len(paths) != 0 && err == nil
