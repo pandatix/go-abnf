@@ -160,6 +160,9 @@ func (opt thresholdOption) apply(opts *genOpts) {
 // (no option, no repetition with a minimum of zero).
 func checkCanGenerateSafely(g *Grammar, rulename string) error {
 	rule := getRule(rulename, g.rulemap)
+	if rule == nil {
+		return errors.New("unknown rule")
+	}
 	knownRules := map[string]struct{}{
 		rulename: {},
 	}
