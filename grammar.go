@@ -209,7 +209,7 @@ func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Pat
 
 func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path {
 	// Fast check won't be out of bounds with first read
-	if !keepGoing(rep, input, index, 0) {
+	if !solveKeepGoing(rep, input, index, 0) {
 		return []*Path{}
 	}
 
@@ -218,7 +218,7 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 	pindex := 0
 
 	y := 1
-	kg := keepGoing(rep, input, index, y)
+	kg := solveKeepGoing(rep, input, index, y)
 
 	for kg {
 		iterPaths := []*Path{}
@@ -240,7 +240,7 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 
 		// Prepare for next iteration
 		y++
-		kg = keepGoing(rep, input, index, y)
+		kg = solveKeepGoing(rep, input, index, y)
 
 		// If no solutions now, there won't be any later.
 		if len(iterPaths) == 0 {
@@ -299,6 +299,7 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 	case elemNumVal:
 		switch v.status {
 		case statRange:
+			// Any matches
 			min, max := atob(v.elems[0], v.base), atob(v.elems[1], v.base)
 			if min <= input[index] && input[index] <= max {
 				paths = append(paths, &Path{
@@ -310,16 +311,22 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 			}
 
 		case statSeries:
-			for _, elem := range v.elems {
-				if atob(elem, v.base) == input[index] {
-					paths = append(paths, &Path{
-						Subpaths:  nil,
-						MatchRule: "",
-						Start:     index,
-						End:       index + 1,
-					})
-					break // don't need to go further, check only one byte
+			// Only match if all matches in order
+			initialIndex := index
+			matches := true
+			for i := 0; i < len(v.elems) && matches; i++ {
+				if atob(v.elems[i], v.base) != input[index] {
+					matches = false
 				}
+				index++
+			}
+			if matches {
+				paths = append(paths, &Path{
+					Subpaths:  nil,
+					MatchRule: "",
+					Start:     initialIndex,
+					End:       index,
+				})
 			}
 		}
 
@@ -348,152 +355,26 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 	return paths
 }
 
-// atob converts str to byte given the base.
-func atob(str, base string) byte {
-	switch base {
-	case "b":
-		return bintob(str)
-	case "d":
-		return dectob(str)
-	case "x":
-		return hextob(str)
-	}
-	panic("invalid base")
-}
-
-func bintob(str string) byte {
-	// XXX Length can't be more than 64 bits
-	out := 0
-	for i := 0; i < len(str); i++ {
-		c := str[i]
-		cv := 0
-		switch c {
-		case '0':
-			cv = 0
-		case '1':
-			cv = 1
-		default:
-			panic("invalid bit: " + string(c))
-		}
-		out += cv * pow(2, len(str)-i-1)
-	}
-	return byte(out)
-}
-
-func dectob(str string) byte {
-	out := 0
-	for i := 0; i < len(str); i++ {
-		c := str[i]
-		cv := 0
-		switch c {
-		case '0':
-			cv = 0
-		case '1':
-			cv = 1
-		case '2':
-			cv = 2
-		case '3':
-			cv = 3
-		case '4':
-			cv = 4
-		case '5':
-			cv = 5
-		case '6':
-			cv = 6
-		case '7':
-			cv = 7
-		case '8':
-			cv = 8
-		case '9':
-			cv = 9
-		default:
-			panic("invalid dec: " + string(c))
-		}
-		out += cv * pow(10, len(str)-i-1)
-	}
-	return byte(out)
-}
-
-func hextob(str string) byte {
-	out := 0
-	for i := 0; i < len(str); i++ {
-		c := str[i]
-		cv := 0
-		switch c {
-		case '0':
-			cv = 0
-		case '1':
-			cv = 1
-		case '2':
-			cv = 2
-		case '3':
-			cv = 3
-		case '4':
-			cv = 4
-		case '5':
-			cv = 5
-		case '6':
-			cv = 6
-		case '7':
-			cv = 7
-		case '8':
-			cv = 8
-		case '9':
-			cv = 9
-		case 'A', 'a':
-			cv = 10
-		case 'B', 'b':
-			cv = 11
-		case 'C', 'c':
-			cv = 12
-		case 'D', 'd':
-			cv = 13
-		case 'E', 'e':
-			cv = 14
-		case 'F', 'f':
-			cv = 15
-		default:
-			panic("invalid hex: " + string(c))
-		}
-		out += cv * pow(16, len(str)-i-1)
-	}
-	return byte(out)
-}
-
-func pow(v, e int) int {
-	if e == 0 {
-		return 1
-	}
-	for i := 1; i < e; i++ {
-		v *= v
-	}
-	return v
-}
-
 func sensequal(target, actual byte, sensitive bool) bool {
 	if !sensitive {
-		return target == actual
+		target, actual = strmin(target), strmin(actual)
 	}
-	if target == actual { // if sensitive but strictly equal, fast return
-		return true
-	}
-	target, actual = strmin(target), strmin(actual)
 	return target == actual
 }
 
 func strmin(r byte) byte {
-	if r >= 'A' || r <= 'Z' {
+	if r >= 'A' && r <= 'Z' {
 		return r - 'A' + 'a'
 	}
 	return r
 }
 
-// keepGoing returns true if a new repetition should be tested or not.
+// solveKeepGoing returns true if a new repetition should be tested or not.
 // If the repetition has no max, it returns whether input has been
 // totally consumed.
 // Else, it checks if input has been totally consumed AND if there
 // could be other repetitions.
-func keepGoing(rep repetition, input []byte, index, y int) bool {
+func solveKeepGoing(rep repetition, input []byte, index, y int) bool {
 	// Find if could handle the length of this repetition
 	// considering its type
 	couldHandle := true
@@ -518,23 +399,6 @@ func keepGoing(rep repetition, input []byte, index, y int) bool {
 	// If has a maximum repetition, check could handle AND will remain
 	// under boundary.
 	return couldHandle && y < rep.max
-}
-
-// getRule returns the rule by the given rulename, wether
-// it is a core rule or present in the grammar, or nil if not found.
-// It validates the RFC 5234 Section 2.1 "rule names are case insensitive".
-func getRule(rulename string, rulemap map[string]*rule) *rule {
-	for _, coreRule := range coreRules {
-		if strings.EqualFold(rulename, coreRule.name) {
-			return coreRule
-		}
-	}
-	for _, rule := range rulemap {
-		if strings.EqualFold(rulename, rule.name) {
-			return rule
-		}
-	}
-	return nil
 }
 
 // LexABNF is the lexer for the ABNF structural model implemented.
@@ -805,7 +669,10 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfNumVal.name:
 		basePath := path.Subpaths[1].Subpaths[0]
 		stat := statSeries
-		elems := []string{}
+		elems := []string{
+			// First hit always at the same spot
+			string(input[basePath.Subpaths[1].Start:basePath.Subpaths[1].End]),
+		}
 
 		var base string
 		switch basePath.MatchRule {
@@ -817,21 +684,28 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			base = "x"
 		}
 
-		elems = append(elems, string(input[basePath.Subpaths[1].Start:basePath.Subpaths[1].End]))
-
+		// Find if series or range
 		switch len(basePath.Subpaths) {
 		case 3:
-			// Could be either serie or oneof range
-			spl := basePath.Subpaths[2].Subpaths[0].Subpaths[0]
-			splc := input[spl.Start:spl.End]
+
+		}
+
+		if len(basePath.Subpaths) > 2 {
+			hit := basePath.Subpaths[2].Subpaths[0]
+			// Could be either serie or range
+			splc := input[hit.Subpaths[0].Start:hit.Subpaths[0].End]
 			if splc[0] == '-' {
 				stat = statRange
 			}
-		}
 
-		for i := 2; i < len(basePath.Subpaths); i++ {
-			val := basePath.Subpaths[i].Subpaths[0].Subpaths[1]
-			elems = append(elems, string(input[val.Start:val.End]))
+			// Second hit always at the same spot
+			elems = append(elems, string(input[hit.Subpaths[1].Start:hit.Subpaths[1].End]))
+
+			// Other follows in their own subpaths
+			for i := 2; i < len(hit.Subpaths); i++ {
+				t := hit.Subpaths[i]
+				elems = append(elems, string(input[t.Subpaths[1].Start:t.Subpaths[1].End]))
+			}
 		}
 
 		return elemNumVal{

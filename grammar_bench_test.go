@@ -1,19 +1,21 @@
-package goabnf
+package goabnf_test
 
 import (
 	_ "embed"
 	"testing"
+
+	goabnf "github.com/pandatix/go-abnf"
 )
 
-var Ggrammar *Grammar
+var Ggrammar *goabnf.Grammar
 var Gerr error
 
 func BenchmarkParseABNF(b *testing.B) {
-	var grammar *Grammar
+	var grammar *goabnf.Grammar
 	var err error
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		grammar, err = ParseABNF(abnfAbnf)
+		grammar, err = goabnf.ParseABNF(abnfAbnf)
 	}
 	Ggrammar = grammar
 	Gerr = err

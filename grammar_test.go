@@ -1,9 +1,10 @@
-package goabnf
+package goabnf_test
 
 import (
 	_ "embed"
 	"testing"
 
+	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -145,93 +146,12 @@ func Test_U_ParseABNF(t *testing.T) {
 			assert := assert.New(t)
 
 			assert.NotEmpty(tt.Input)
-			_, err := ParseABNF(tt.Input, WithValidation(tt.Validate))
+			_, err := goabnf.ParseABNF(tt.Input, goabnf.WithValidation(tt.Validate))
 
 			if tt.ExpectErr {
 				assert.NotNil(err)
 			} else {
 				assert.Nil(err)
-			}
-		})
-	}
-}
-
-func Test_U_Atob(t *testing.T) {
-	t.Parallel()
-
-	var tests = map[string]struct {
-		Str         string
-		Base        string
-		ExpectedVal byte
-	}{
-		"hex": {
-			Str:         "3c",
-			Base:        "x",
-			ExpectedVal: 0x3c,
-		},
-		"binary": {
-			Str:         "10",
-			Base:        "b",
-			ExpectedVal: 0b10,
-		},
-		"decimal": {
-			Str:         "56",
-			Base:        "d",
-			ExpectedVal: 56,
-		},
-	}
-
-	for testname, tt := range tests {
-		t.Run(testname, func(t *testing.T) {
-			assert := assert.New(t)
-
-			val := atob(tt.Str, tt.Base)
-
-			assert.Equal(tt.ExpectedVal, val)
-		})
-	}
-}
-
-func Test_U_GetRule(t *testing.T) {
-	t.Parallel()
-
-	var tests = map[string]struct {
-		Rulename   string
-		Rulemap    map[string]*rule
-		ExpectRule bool
-	}{
-		"core-rule": {
-			Rulename:   "WSP",
-			Rulemap:    ABNF.rulemap,
-			ExpectRule: true,
-		},
-		"rulemap-rule": {
-			Rulename:   "rulelist",
-			Rulemap:    ABNF.rulemap,
-			ExpectRule: true,
-		},
-		"case-insensitive": {
-			Rulename:   "wsp",
-			Rulemap:    ABNF.rulemap,
-			ExpectRule: true,
-		},
-		"unexisting-rule": {
-			Rulename:   "im-n07-4-rul3",
-			Rulemap:    ABNF.rulemap,
-			ExpectRule: false,
-		},
-	}
-
-	for testname, tt := range tests {
-		t.Run(testname, func(t *testing.T) {
-			assert := assert.New(t)
-
-			rule := getRule(tt.Rulename, tt.Rulemap)
-
-			if tt.ExpectRule {
-				assert.NotNil(rule)
-			} else {
-				assert.Nil(rule)
 			}
 		})
 	}
@@ -245,8 +165,8 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// Test the hardcoded ABNF is:
 	// - valid (string method works)
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
-	hardcoded := ABNF.String()
-	g, err := ParseABNF([]byte(hardcoded))
+	hardcoded := goabnf.ABNF.String()
+	g, err := goabnf.ParseABNF([]byte(hardcoded))
 	if !assert.Nil(err) {
 		t.FailNow()
 	}
@@ -256,14 +176,14 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
 	// (1a) with the hardcoded ABNF grammar
 	fresh := g.String()
-	ng, err := ParseABNF([]byte(fresh))
+	ng, err := goabnf.ParseABNF([]byte(fresh))
 	assert.Equal(g, ng)
 	assert.Nil(err)
 
-	assert.Equal(ABNF, ng)
+	assert.Equal(goabnf.ABNF, ng)
 
 	// 1b (with the freshly produced ABNF grammar)
-	sol, err := Parse([]byte(fresh), g, "rulelist")
+	sol, err := goabnf.Parse([]byte(fresh), g, "rulelist")
 	assert.NotNil(sol)
 	assert.Nil(err)
 }

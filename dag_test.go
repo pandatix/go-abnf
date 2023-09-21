@@ -1,9 +1,10 @@
-package goabnf
+package goabnf_test
 
 import (
 	_ "embed"
 	"testing"
 
+	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -39,7 +40,7 @@ func Test_U_IsDag(t *testing.T) {
 		t.Run(testname, func(t *testing.T) {
 			assert := assert.New(t)
 
-			g, err := ParseABNF(tt.Input)
+			g, err := goabnf.ParseABNF(tt.Input)
 			if !assert.Nil(err) {
 				t.FailNow()
 			}

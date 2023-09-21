@@ -1,6 +1,10 @@
-package goabnf
+package goabnf_test
 
-import "testing"
+import (
+	"testing"
+
+	goabnf "github.com/pandatix/go-abnf"
+)
 
 func FuzzParseABNF(f *testing.F) {
 	for _, test := range testsParseAbnf {
@@ -8,7 +12,7 @@ func FuzzParseABNF(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input []byte) {
-		path, err := ParseABNF(input)
+		path, err := goabnf.ParseABNF(input)
 
 		if err != nil {
 			if path != nil {
