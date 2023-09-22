@@ -47,27 +47,27 @@ func Test_U_GetRule(t *testing.T) {
 
 	var tests = map[string]struct {
 		Rulename   string
-		Rulemap    map[string]*rule
+		Rulemap    map[string]*Rule
 		ExpectRule bool
 	}{
 		"core-rule": {
 			Rulename:   "WSP",
-			Rulemap:    ABNF.rulemap,
+			Rulemap:    ABNF.Rulemap,
 			ExpectRule: true,
 		},
 		"rulemap-rule": {
 			Rulename:   "rulelist",
-			Rulemap:    ABNF.rulemap,
+			Rulemap:    ABNF.Rulemap,
 			ExpectRule: true,
 		},
 		"case-insensitive": {
 			Rulename:   "wsp",
-			Rulemap:    ABNF.rulemap,
+			Rulemap:    ABNF.Rulemap,
 			ExpectRule: true,
 		},
 		"unexisting-rule": {
 			Rulename:   "im-n07-4-rul3",
-			Rulemap:    ABNF.rulemap,
+			Rulemap:    ABNF.Rulemap,
 			ExpectRule: false,
 		},
 	}
@@ -76,7 +76,7 @@ func Test_U_GetRule(t *testing.T) {
 		t.Run(testname, func(t *testing.T) {
 			assert := assert.New(t)
 
-			rule := getRule(tt.Rulename, tt.Rulemap)
+			rule := GetRule(tt.Rulename, tt.Rulemap)
 
 			if tt.ExpectRule {
 				assert.NotNil(rule)

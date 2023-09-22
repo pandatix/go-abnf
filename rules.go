@@ -4,51 +4,51 @@ var (
 	inf int = -1
 
 	// coreRules are the core rules specified in RFC 5234 Section 8.1
-	coreRules = map[string]*rule{
-		alpha.name:  alpha,
-		bit.name:    bit,
-		char.name:   char,
-		cr.name:     cr,
-		crlf.name:   crlf,
-		ctl.name:    ctl,
-		digit.name:  digit,
-		dquote.name: dquote,
-		hexdig.name: hexdig,
-		htab.name:   htab,
-		lf.name:     lf,
-		lwsp.name:   lwsp,
-		octet.name:  octet,
-		sp.name:     sp,
-		vchar.name:  vchar,
-		wsp.name:    wsp,
+	coreRules = map[string]*Rule{
+		alpha.Name:  alpha,
+		bit.Name:    bit,
+		char.Name:   char,
+		cr.Name:     cr,
+		crlf.Name:   crlf,
+		ctl.Name:    ctl,
+		digit.Name:  digit,
+		dquote.Name: dquote,
+		hexdig.Name: hexdig,
+		htab.Name:   htab,
+		lf.Name:     lf,
+		lwsp.Name:   lwsp,
+		octet.Name:  octet,
+		sp.Name:     sp,
+		vchar.Name:  vchar,
+		wsp.Name:    wsp,
 	}
 
 	// ALPHA = %x41-5A / %x61-7A
-	alpha = &rule{
-		name: "ALPHA",
-		alternation: alternation{
-			concatenations: []concatenation{
+	alpha = &Rule{
+		Name: "ALPHA",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"41", "5A"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"41", "5A"},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"61", "7A"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"61", "7A"},
 							},
 						},
 					},
@@ -58,29 +58,29 @@ var (
 	}
 
 	// BIT = "0" / "1"
-	bit = &rule{
-		name: "BIT",
-		alternation: alternation{
-			concatenations: []concatenation{
+	bit = &Rule{
+		Name: "BIT",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'0'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'0'},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'1'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'1'},
 							},
 						},
 					},
@@ -90,19 +90,19 @@ var (
 	}
 
 	// CHAR = %x01-7F
-	char = &rule{
-		name: "CHAR",
-		alternation: alternation{
-			concatenations: []concatenation{
+	char = &Rule{
+		Name: "CHAR",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"01", "7F"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"01", "7F"},
 							},
 						},
 					},
@@ -112,19 +112,19 @@ var (
 	}
 
 	// CR = %x0D
-	cr = &rule{
-		name: "CR",
-		alternation: alternation{
-			concatenations: []concatenation{
+	cr = &Rule{
+		Name: "CR",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statSeries,
-								elems:  []string{"0D"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatSeries,
+								Elems:  []string{"0D"},
 							},
 						},
 					},
@@ -134,23 +134,23 @@ var (
 	}
 
 	// CRLF = CR LF
-	crlf = &rule{
-		name: "CRLF",
-		alternation: alternation{
-			concatenations: []concatenation{
+	crlf = &Rule{
+		Name: "CRLF",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "CR",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "CR",
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "LF",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "LF",
 							},
 						},
 					},
@@ -160,31 +160,31 @@ var (
 	}
 
 	// CTL = %x00-1F / %x7F
-	ctl = &rule{
-		name: "CTL",
-		alternation: alternation{
-			concatenations: []concatenation{
+	ctl = &Rule{
+		Name: "CTL",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"00", "1F"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"00", "1F"},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statSeries,
-								elems:  []string{"7F"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatSeries,
+								Elems:  []string{"7F"},
 							},
 						},
 					},
@@ -194,19 +194,19 @@ var (
 	}
 
 	// DIGIT = %x30-39
-	digit = &rule{
-		name: "DIGIT",
-		alternation: alternation{
-			concatenations: []concatenation{
+	digit = &Rule{
+		Name: "DIGIT",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"30", "39"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"30", "39"},
 							},
 						},
 					},
@@ -216,19 +216,19 @@ var (
 	}
 
 	// DQUOTE = %x22
-	dquote = &rule{
-		name: "DQUOTE",
-		alternation: alternation{
-			concatenations: []concatenation{
+	dquote = &Rule{
+		Name: "DQUOTE",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statSeries,
-								elems:  []string{"22"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatSeries,
+								Elems:  []string{"22"},
 							},
 						},
 					},
@@ -238,83 +238,83 @@ var (
 	}
 
 	// HEXDIG = DIGIT / "A" / "B" / "C" / "D" / "E" / "F"
-	hexdig = &rule{
-		name: "HEXDIG",
-		alternation: alternation{
-			concatenations: []concatenation{
+	hexdig = &Rule{
+		Name: "HEXDIG",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "DIGIT",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "DIGIT",
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'A'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'A'},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'B'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'B'},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'C'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'C'},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'D'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'D'},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'E'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'E'},
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'F'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'F'},
 							},
 						},
 					},
@@ -324,19 +324,19 @@ var (
 	}
 
 	// HTAB = %x09
-	htab = &rule{
-		name: "HTAB",
-		alternation: alternation{
-			concatenations: []concatenation{
+	htab = &Rule{
+		Name: "HTAB",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statSeries,
-								elems:  []string{"09"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatSeries,
+								Elems:  []string{"09"},
 							},
 						},
 					},
@@ -346,19 +346,19 @@ var (
 	}
 
 	// LF = %x0A
-	lf = &rule{
-		name: "LF",
-		alternation: alternation{
-			concatenations: []concatenation{
+	lf = &Rule{
+		Name: "LF",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statSeries,
-								elems:  []string{"0A"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatSeries,
+								Elems:  []string{"0A"},
 							},
 						},
 					},
@@ -368,41 +368,41 @@ var (
 	}
 
 	// LWSP = *(WSP / CRLF WSP)
-	lwsp = &rule{
-		name: "LWSP",
-		alternation: alternation{
-			concatenations: []concatenation{
+	lwsp = &Rule{
+		Name: "LWSP",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "WSP",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "WSP",
 													},
 												},
 											},
 										}, {
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "CRLF",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "CRLF",
 													},
 												}, {
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "WSP",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "WSP",
 													},
 												},
 											},
@@ -418,19 +418,19 @@ var (
 	}
 
 	// OCTET = %x00-FF
-	octet = &rule{
-		name: "OCTET",
-		alternation: alternation{
-			concatenations: []concatenation{
+	octet = &Rule{
+		Name: "OCTET",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"00", "FF"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"00", "FF"},
 							},
 						},
 					},
@@ -440,19 +440,19 @@ var (
 	}
 
 	// SP = %x20
-	sp = &rule{
-		name: "SP",
-		alternation: alternation{
-			concatenations: []concatenation{
+	sp = &Rule{
+		Name: "SP",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statSeries,
-								elems:  []string{"20"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatSeries,
+								Elems:  []string{"20"},
 							},
 						},
 					},
@@ -462,19 +462,19 @@ var (
 	}
 
 	// VCHAR = %x21-7E
-	vchar = &rule{
-		name: "VCHAR",
-		alternation: alternation{
-			concatenations: []concatenation{
+	vchar = &Rule{
+		Name: "VCHAR",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemNumVal{
-								base:   "x",
-								status: statRange,
-								elems:  []string{"21", "7E"},
+							Min: 1,
+							Max: 1,
+							Element: ElemNumVal{
+								Base:   "x",
+								Status: StatRange,
+								Elems:  []string{"21", "7E"},
 							},
 						},
 					},
@@ -484,27 +484,27 @@ var (
 	}
 
 	// WSP = SP / HTAB
-	wsp = &rule{
-		name: "WSP",
-		alternation: alternation{
-			concatenations: []concatenation{
+	wsp = &Rule{
+		Name: "WSP",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "SP",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "SP",
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "HTAB",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "HTAB",
 							},
 						},
 					},
@@ -515,49 +515,49 @@ var (
 )
 
 var (
-	abnfRulelist = &rule{
-		name: "rulelist",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfRulelist = &Rule{
+		Name: "rulelist",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "rule",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "rule",
 													},
 												},
 											},
 										}, {
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
+													Min: 1,
+													Max: 1,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
 																{
-																	repetitions: []repetition{
+																	Repetitions: []Repetition{
 																		{
-																			min: 0,
-																			max: inf,
-																			element: elemRulename{
-																				name: "WSP", // Fixed according to Errata 3076
+																			Min: 0,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "WSP", // Fixed according to Errata 3076
 																			},
 																		}, {
-																			min: 1,
-																			max: 1,
-																			element: elemRulename{
-																				name: "c-nl",
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemRulename{
+																				Name: "c-nl",
 																			},
 																		},
 																	},
@@ -578,35 +578,35 @@ var (
 		},
 	}
 
-	abnfRule = &rule{
-		name: "rule",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfRule = &Rule{
+		Name: "rule",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "rulename",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "rulename",
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "defined-as",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "defined-as",
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "elements",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "elements",
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "c-nl",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "c-nl",
 							},
 						},
 					},
@@ -615,52 +615,52 @@ var (
 		},
 	}
 
-	abnfRulename = &rule{
-		name: "rulename",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfRulename = &Rule{
+		Name: "rulename",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "ALPHA",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "ALPHA",
 							},
 						}, {
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "ALPHA",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "ALPHA",
 													},
 												},
 											},
 										}, {
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "DIGIT",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "DIGIT",
 													},
 												},
 											},
 										}, {
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemCharVal{
-														sensitive: false,
-														values:    []byte{'-'},
+													Min: 1,
+													Max: 1,
+													Element: ElemCharVal{
+														Sensitive: false,
+														Values:    []byte{'-'},
 													},
 												},
 											},
@@ -675,43 +675,43 @@ var (
 		},
 	}
 
-	abnfDefinedAs = &rule{
-		name: "defined-as",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfDefinedAs = &Rule{
+		Name: "defined-as",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "c-wsp",
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "c-wsp",
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemCharVal{
-														sensitive: false,
-														values:    []byte{'='},
+													Min: 1,
+													Max: 1,
+													Element: ElemCharVal{
+														Sensitive: false,
+														Values:    []byte{'='},
 													},
 												},
 											},
 										}, {
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemCharVal{
-														sensitive: false,
-														values:    []byte{'=', '/'},
+													Min: 1,
+													Max: 1,
+													Element: ElemCharVal{
+														Sensitive: false,
+														Values:    []byte{'=', '/'},
 													},
 												},
 											},
@@ -720,10 +720,10 @@ var (
 								},
 							},
 						}, {
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "c-wsp",
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "c-wsp",
 							},
 						},
 					},
@@ -732,23 +732,23 @@ var (
 		},
 	}
 
-	abnfElements = &rule{
-		name: "elements",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfElements = &Rule{
+		Name: "elements",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "alternation",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "alternation",
 							},
 						}, {
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "WSP", // Fixed according to Errata 2968
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "WSP", // Fixed according to Errata 2968
 							},
 						},
 					},
@@ -757,41 +757,41 @@ var (
 		},
 	}
 
-	abnfCWsp = &rule{
-		name: "c-wsp",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfCWsp = &Rule{
+		Name: "c-wsp",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "WSP",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "WSP",
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "c-nl",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "c-nl",
 													},
 												}, {
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "WSP",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "WSP",
 													},
 												},
 											},
@@ -806,27 +806,27 @@ var (
 		},
 	}
 
-	abnfCNl = &rule{
-		name: "c-nl",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfCNl = &Rule{
+		Name: "c-nl",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "comment",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "comment",
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "CRLF",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "CRLF",
 							},
 						},
 					},
@@ -835,113 +835,44 @@ var (
 		},
 	}
 
-	abnfComment = &rule{
-		name: "comment",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfComment = &Rule{
+		Name: "comment",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{';'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{';'},
 							},
 						},
 						{
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "WSP",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "WSP",
 													},
 												},
 											},
 										},
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "VCHAR",
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "CRLF",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	abnfAlternation = &rule{
-		name: "alternation",
-		alternation: alternation{
-			concatenations: []concatenation{
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "concatenation",
-							},
-						},
-						{
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
-										{
-											repetitions: []repetition{
-												{
-													min: 0,
-													max: inf,
-													element: elemRulename{
-														name: "c-wsp",
-													},
-												},
-												{
-													min: 1,
-													max: 1,
-													element: elemCharVal{
-														sensitive: false,
-														values:    []byte{'/'},
-													},
-												},
-												{
-													min: 0,
-													max: inf,
-													element: elemRulename{
-														name: "c-wsp",
-													},
-												},
-												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "concatenation",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "VCHAR",
 													},
 												},
 											},
@@ -950,45 +881,67 @@ var (
 								},
 							},
 						},
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "CRLF",
+							},
+						},
 					},
 				},
 			},
 		},
 	}
 
-	abnfConcatenation = &rule{
-		name: "concatenation",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfAlternation = &Rule{
+		Name: "alternation",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "repetition",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "concatenation",
 							},
 						},
 						{
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: inf,
-													element: elemRulename{
-														name: "c-wsp",
+													Min: 0,
+													Max: inf,
+													Element: ElemRulename{
+														Name: "c-wsp",
 													},
 												},
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "repetition",
+													Min: 1,
+													Max: 1,
+													Element: ElemCharVal{
+														Sensitive: false,
+														Values:    []byte{'/'},
+													},
+												},
+												{
+													Min: 0,
+													Max: inf,
+													Element: ElemRulename{
+														Name: "c-wsp",
+													},
+												},
+												{
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "concatenation",
 													},
 												},
 											},
@@ -1003,91 +956,39 @@ var (
 		},
 	}
 
-	abnfRepetition = &rule{
-		name: "repetition",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfConcatenation = &Rule{
+		Name: "concatenation",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemOption{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "repetition",
+							},
+						},
+						{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "repeat",
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "element",
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	abnfRepeat = &rule{
-		name: "repeat",
-		alternation: alternation{
-			concatenations: []concatenation{
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: inf,
-							element: elemRulename{
-								name: "DIGIT",
-							},
-						},
-					},
-				},
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
-										{
-											repetitions: []repetition{
-												{
-													min: 0,
-													max: inf,
-													element: elemRulename{
-														name: "DIGIT",
+													Min: 1,
+													Max: inf,
+													Element: ElemRulename{
+														Name: "c-wsp",
 													},
 												},
 												{
-													min: 1,
-													max: 1,
-													element: elemCharVal{
-														sensitive: false,
-														values:    []byte{'*'},
-													},
-												},
-												{
-													min: 0,
-													max: inf,
-													element: elemRulename{
-														name: "DIGIT",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "repetition",
 													},
 												},
 											},
@@ -1102,72 +1003,38 @@ var (
 		},
 	}
 
-	abnfElement = &rule{
-		name: "element",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfRepetition = &Rule{
+		Name: "repetition",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "rulename",
+							Min: 1,
+							Max: 1,
+							Element: ElemOption{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
+										{
+											Repetitions: []Repetition{
+												{
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "repeat",
+													},
+												},
+											},
+										},
+									},
+								},
 							},
 						},
-					},
-				},
-				{
-					repetitions: []repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "group",
-							},
-						},
-					},
-				},
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "option",
-							},
-						},
-					},
-				},
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "char-val",
-							},
-						},
-					},
-				},
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "num-val",
-							},
-						},
-					},
-				},
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "prose-val",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "element",
 							},
 						},
 					},
@@ -1176,47 +1043,57 @@ var (
 		},
 	}
 
-	abnfGroup = &rule{
-		name: "group",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfRepeat = &Rule{
+		Name: "repeat",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'('},
+							Min: 1,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "DIGIT",
 							},
 						},
+					},
+				},
+				{
+					Repetitions: []Repetition{
 						{
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "c-wsp",
-							},
-						},
-						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "alternation",
-							},
-						},
-						{
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "c-wsp",
-							},
-						},
-						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{')'},
+							Min: 1,
+							Max: 1,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
+										{
+											Repetitions: []Repetition{
+												{
+													Min: 0,
+													Max: inf,
+													Element: ElemRulename{
+														Name: "DIGIT",
+													},
+												},
+												{
+													Min: 1,
+													Max: 1,
+													Element: ElemCharVal{
+														Sensitive: false,
+														Values:    []byte{'*'},
+													},
+												},
+												{
+													Min: 0,
+													Max: inf,
+													Element: ElemRulename{
+														Name: "DIGIT",
+													},
+												},
+											},
+										},
+									},
+								},
 							},
 						},
 					},
@@ -1225,47 +1102,170 @@ var (
 		},
 	}
 
-	abnfOption = &rule{
-		name: "option",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfElement = &Rule{
+		Name: "element",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'['},
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "rulename",
+							},
+						},
+					},
+				},
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "group",
+							},
+						},
+					},
+				},
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "option",
+							},
+						},
+					},
+				},
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "char-val",
+							},
+						},
+					},
+				},
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "num-val",
+							},
+						},
+					},
+				},
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "prose-val",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	abnfGroup = &Rule{
+		Name: "group",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'('},
 							},
 						},
 						{
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "c-wsp",
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "c-wsp",
 							},
 						},
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "alternation",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "alternation",
 							},
 						},
 						{
-							min: 0,
-							max: inf,
-							element: elemRulename{
-								name: "c-wsp",
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "c-wsp",
 							},
 						},
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{']'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{')'},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	abnfOption = &Rule{
+		Name: "option",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'['},
+							},
+						},
+						{
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "c-wsp",
+							},
+						},
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "alternation",
+							},
+						},
+						{
+							Min: 0,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "c-wsp",
+							},
+						},
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{']'},
 							},
 						},
 					},
@@ -1275,27 +1275,27 @@ var (
 	}
 
 	// Written as overrided by RFC 7405
-	abnfCharVal = &rule{
-		name: "char-val",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfCharVal = &Rule{
+		Name: "char-val",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "case-insensitive-string",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "case-insensitive-string",
 							},
 						},
 					},
 				}, {
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "case-sensitive-string",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "case-sensitive-string",
 							},
 						},
 					},
@@ -1304,26 +1304,26 @@ var (
 		},
 	}
 
-	abnfCaseInsensitiveString = &rule{
-		name: "case-insensitive-string",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfCaseInsensitiveString = &Rule{
+		Name: "case-insensitive-string",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemOption{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemOption{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemCharVal{
-														sensitive: false,
-														values:    []byte{'%', 'i'},
+													Min: 1,
+													Max: 1,
+													Element: ElemCharVal{
+														Sensitive: false,
+														Values:    []byte{'%', 'i'},
 													},
 												},
 											},
@@ -1332,10 +1332,10 @@ var (
 								},
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "quoted-string",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "quoted-string",
 							},
 						},
 					},
@@ -1344,24 +1344,24 @@ var (
 		},
 	}
 
-	abnfCaseSensitiveString = &rule{
-		name: "case-sensitive-string",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfCaseSensitiveString = &Rule{
+		Name: "case-sensitive-string",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'%', 's'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'%', 's'},
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "quoted-string",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "quoted-string",
 							},
 						},
 					},
@@ -1370,45 +1370,45 @@ var (
 		},
 	}
 
-	abnfQuotedString = &rule{
-		name: "quoted-string",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfQuotedString = &Rule{
+		Name: "quoted-string",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "DQUOTE",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "DQUOTE",
 							},
 						}, {
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemNumVal{
-														base:   "x",
-														status: statRange,
-														elems:  []string{"20", "21"},
+													Min: 1,
+													Max: 1,
+													Element: ElemNumVal{
+														Base:   "x",
+														Status: StatRange,
+														Elems:  []string{"20", "21"},
 													},
 												},
 											},
 										}, {
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemNumVal{
-														base:   "x",
-														status: statRange,
-														elems:  []string{"23", "7E"},
+													Min: 1,
+													Max: 1,
+													Element: ElemNumVal{
+														Base:   "x",
+														Status: StatRange,
+														Elems:  []string{"23", "7E"},
 													},
 												},
 											},
@@ -1417,10 +1417,10 @@ var (
 								},
 							},
 						}, {
-							min: 1,
-							max: 1,
-							element: elemRulename{
-								name: "DQUOTE",
+							Min: 1,
+							Max: 1,
+							Element: ElemRulename{
+								Name: "DQUOTE",
 							},
 						},
 					},
@@ -1429,55 +1429,55 @@ var (
 		},
 	}
 
-	abnfNumVal = &rule{
-		name: "num-val",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfNumVal = &Rule{
+		Name: "num-val",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'%'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'%'},
 							},
 						},
 						{
-							min: 1,
-							max: 1,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "bin-val",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "bin-val",
 													},
 												},
 											},
 										},
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "dec-val",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "dec-val",
 													},
 												},
 											},
 										},
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemRulename{
-														name: "hex-val",
+													Min: 1,
+													Max: 1,
+													Element: ElemRulename{
+														Name: "hex-val",
 													},
 												},
 											},
@@ -1492,56 +1492,56 @@ var (
 		},
 	}
 
-	abnfBinVal = &rule{
-		name: "bin-val",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfBinVal = &Rule{
+		Name: "bin-val",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'b'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'b'},
 							},
 						},
 						{
-							min: 1,
-							max: inf,
-							element: elemRulename{
-								name: "BIT",
+							Min: 1,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "BIT",
 							},
 						},
 						{
-							min: 1,
-							max: 1,
-							element: elemOption{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemOption{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: inf,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
+													Min: 1,
+													Max: inf,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
 																{
-																	repetitions: []repetition{
+																	Repetitions: []Repetition{
 																		{
-																			min: 1,
-																			max: 1,
-																			element: elemCharVal{
-																				sensitive: false,
-																				values:    []byte{'.'},
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemCharVal{
+																				Sensitive: false,
+																				Values:    []byte{'.'},
 																			},
 																		},
 																		{
-																			min: 1,
-																			max: inf,
-																			element: elemRulename{
-																				name: "BIT",
+																			Min: 1,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "BIT",
 																			},
 																		},
 																	},
@@ -1553,131 +1553,28 @@ var (
 											},
 										},
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
+													Min: 1,
+													Max: 1,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
 																{
-																	repetitions: []repetition{
+																	Repetitions: []Repetition{
 																		{
-																			min: 1,
-																			max: 1,
-																			element: elemCharVal{
-																				sensitive: false,
-																				values:    []byte{'-'},
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemCharVal{
+																				Sensitive: false,
+																				Values:    []byte{'-'},
 																			},
 																		},
 																		{
-																			min: 1,
-																			max: inf,
-																			element: elemRulename{
-																				name: "BIT",
-																			},
-																		},
-																	},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	abnfDecVal = &rule{
-		name: "dec-val",
-		alternation: alternation{
-			concatenations: []concatenation{
-				{
-					repetitions: []repetition{
-						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'d'},
-							},
-						},
-						{
-							min: 1,
-							max: inf,
-							element: elemRulename{
-								name: "DIGIT",
-							},
-						},
-						{
-							min: 1,
-							max: 1,
-							element: elemOption{
-								alternation: alternation{
-									concatenations: []concatenation{
-										{
-											repetitions: []repetition{
-												{
-													min: 1,
-													max: inf,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
-																{
-																	repetitions: []repetition{
-																		{
-																			min: 1,
-																			max: 1,
-																			element: elemCharVal{
-																				sensitive: false,
-																				values:    []byte{'.'},
-																			},
-																		},
-																		{
-																			min: 1,
-																			max: inf,
-																			element: elemRulename{
-																				name: "DIGIT",
-																			},
-																		},
-																	},
-																},
-															},
-														},
-													},
-												},
-											},
-										},
-										{
-											repetitions: []repetition{
-												{
-													min: 1,
-													max: 1,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
-																{
-																	repetitions: []repetition{
-																		{
-																			min: 1,
-																			max: 1,
-																			element: elemCharVal{
-																				sensitive: false,
-																				values:    []byte{'-'},
-																			},
-																		},
-																		{
-																			min: 1,
-																			max: inf,
-																			element: elemRulename{
-																				name: "DIGIT",
+																			Min: 1,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "BIT",
 																			},
 																		},
 																	},
@@ -1698,56 +1595,56 @@ var (
 		},
 	}
 
-	abnfHexVal = &rule{
-		name: "hex-val",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfDecVal = &Rule{
+		Name: "dec-val",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'x'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'d'},
 							},
 						},
 						{
-							min: 1,
-							max: inf,
-							element: elemRulename{
-								name: "HEXDIG",
+							Min: 1,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "DIGIT",
 							},
 						},
 						{
-							min: 1,
-							max: 1,
-							element: elemOption{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: 1,
+							Element: ElemOption{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: inf,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
+													Min: 1,
+													Max: inf,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
 																{
-																	repetitions: []repetition{
+																	Repetitions: []Repetition{
 																		{
-																			min: 1,
-																			max: 1,
-																			element: elemCharVal{
-																				sensitive: false,
-																				values:    []byte{'.'},
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemCharVal{
+																				Sensitive: false,
+																				Values:    []byte{'.'},
 																			},
 																		},
 																		{
-																			min: 1,
-																			max: inf,
-																			element: elemRulename{
-																				name: "HEXDIG",
+																			Min: 1,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "DIGIT",
 																			},
 																		},
 																	},
@@ -1759,28 +1656,28 @@ var (
 											},
 										},
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemGroup{
-														alternation: alternation{
-															concatenations: []concatenation{
+													Min: 1,
+													Max: 1,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
 																{
-																	repetitions: []repetition{
+																	Repetitions: []Repetition{
 																		{
-																			min: 1,
-																			max: 1,
-																			element: elemCharVal{
-																				sensitive: false,
-																				values:    []byte{'-'},
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemCharVal{
+																				Sensitive: false,
+																				Values:    []byte{'-'},
 																			},
 																		},
 																		{
-																			min: 1,
-																			max: inf,
-																			element: elemRulename{
-																				name: "HEXDIG",
+																			Min: 1,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "DIGIT",
 																			},
 																		},
 																	},
@@ -1801,48 +1698,151 @@ var (
 		},
 	}
 
-	abnfProseVal = &rule{
-		name: "prose-val",
-		alternation: alternation{
-			concatenations: []concatenation{
+	abnfHexVal = &Rule{
+		Name: "hex-val",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
 				{
-					repetitions: []repetition{
+					Repetitions: []Repetition{
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'<'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'x'},
 							},
 						},
 						{
-							min: 0,
-							max: inf,
-							element: elemGroup{
-								alternation: alternation{
-									concatenations: []concatenation{
+							Min: 1,
+							Max: inf,
+							Element: ElemRulename{
+								Name: "HEXDIG",
+							},
+						},
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemOption{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemNumVal{
-														base:   "x",
-														status: statRange,
-														elems:  []string{"20", "3D"},
+													Min: 1,
+													Max: inf,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
+																{
+																	Repetitions: []Repetition{
+																		{
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemCharVal{
+																				Sensitive: false,
+																				Values:    []byte{'.'},
+																			},
+																		},
+																		{
+																			Min: 1,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "HEXDIG",
+																			},
+																		},
+																	},
+																},
+															},
+														},
 													},
 												},
 											},
 										},
 										{
-											repetitions: []repetition{
+											Repetitions: []Repetition{
 												{
-													min: 1,
-													max: 1,
-													element: elemNumVal{
-														base:   "x",
-														status: statRange,
-														elems:  []string{"3F", "7E"},
+													Min: 1,
+													Max: 1,
+													Element: ElemGroup{
+														Alternation: Alternation{
+															Concatenations: []Concatenation{
+																{
+																	Repetitions: []Repetition{
+																		{
+																			Min: 1,
+																			Max: 1,
+																			Element: ElemCharVal{
+																				Sensitive: false,
+																				Values:    []byte{'-'},
+																			},
+																		},
+																		{
+																			Min: 1,
+																			Max: inf,
+																			Element: ElemRulename{
+																				Name: "HEXDIG",
+																			},
+																		},
+																	},
+																},
+															},
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	abnfProseVal = &Rule{
+		Name: "prose-val",
+		Alternation: Alternation{
+			Concatenations: []Concatenation{
+				{
+					Repetitions: []Repetition{
+						{
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'<'},
+							},
+						},
+						{
+							Min: 0,
+							Max: inf,
+							Element: ElemGroup{
+								Alternation: Alternation{
+									Concatenations: []Concatenation{
+										{
+											Repetitions: []Repetition{
+												{
+													Min: 1,
+													Max: 1,
+													Element: ElemNumVal{
+														Base:   "x",
+														Status: StatRange,
+														Elems:  []string{"20", "3D"},
+													},
+												},
+											},
+										},
+										{
+											Repetitions: []Repetition{
+												{
+													Min: 1,
+													Max: 1,
+													Element: ElemNumVal{
+														Base:   "x",
+														Status: StatRange,
+														Elems:  []string{"3F", "7E"},
 													},
 												},
 											},
@@ -1852,11 +1852,11 @@ var (
 							},
 						},
 						{
-							min: 1,
-							max: 1,
-							element: elemCharVal{
-								sensitive: false,
-								values:    []byte{'>'},
+							Min: 1,
+							Max: 1,
+							Element: ElemCharVal{
+								Sensitive: false,
+								Values:    []byte{'>'},
 							},
 						},
 					},

@@ -6,141 +6,191 @@ import (
 	"strings"
 )
 
-type elemItf interface {
+// ElemItf defines the interface of all the element alternations:
+// - ElemRulename
+// - ElemGroup
+// - ElemOption
+// - ElemProseVal
+// - ElemNumVal
+// - ElemCharVal
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemItf interface {
 	fmt.Stringer
 }
 
-type rule struct {
-	name        string
-	alternation alternation
+// Rule represents an ABNF rule, with its name and underlying alternation.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type Rule struct {
+	// Name is the unique rule name.
+	// Notice it is case-insensitive according to RFC 5234 Section 2.1.
+	Name string
+
+	Alternation Alternation
 }
 
-func (rl rule) String() string {
-	return fmt.Sprintf("%s = %s", rl.name, rl.alternation)
+func (rl Rule) String() string {
+	return fmt.Sprintf("%s = %s", rl.Name, rl.Alternation)
 }
 
-type alternation struct {
-	concatenations []concatenation
+// Alternation represents an ABNF alternation object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type Alternation struct {
+	// Concatenations contains the variants that validate the upper
+	// object (i.e. rule, group or option).
+	Concatenations []Concatenation
 }
 
-func (alt alternation) String() string {
+func (alt Alternation) String() string {
 	str := ""
-	for _, concat := range alt.concatenations {
+	for _, concat := range alt.Concatenations {
 		str += fmt.Sprintf("%s / ", concat)
 	}
 	return strings.TrimSuffix(str, " / ")
 }
 
-type concatenation struct {
-	repetitions []repetition
+// Concatenation represents an ABNF concatenation object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type Concatenation struct {
+	// Repetitions contains the following repetitions, order matter.
+	Repetitions []Repetition
 }
 
-func (cnt concatenation) String() string {
+func (cnt Concatenation) String() string {
 	str := ""
-	for _, rep := range cnt.repetitions {
+	for _, rep := range cnt.Repetitions {
 		str += fmt.Sprintf("%s ", rep)
 	}
 	return strings.TrimSuffix(str, " ")
 }
 
-type repetition struct {
-	min, max int
-	element  elemItf
+// Repetition represents an ABNF repetition object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type Repetition struct {
+	Min, Max int
+	Element  ElemItf
 }
 
-func (rep repetition) String() string {
-	if rep.min == rep.max {
-		if rep.min == 1 {
-			return rep.element.String()
+func (rep Repetition) String() string {
+	if rep.Min == rep.Max {
+		if rep.Min == 1 {
+			return rep.Element.String()
 		}
-		return strconv.Itoa(rep.min) + rep.element.String()
+		return strconv.Itoa(rep.Min) + rep.Element.String()
 	}
 	str := ""
-	if rep.min != 0 {
-		str += strconv.Itoa(rep.min)
+	if rep.Min != 0 {
+		str += strconv.Itoa(rep.Min)
 	}
 	str += "*"
-	if rep.max != inf {
-		str += strconv.Itoa(rep.max)
+	if rep.Max != inf {
+		str += strconv.Itoa(rep.Max)
 	}
-	return str + rep.element.String()
+	return str + rep.Element.String()
 }
 
-type elemRulename struct {
-	name string
+// ElemRulename represents an ABNF rulename object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemRulename struct {
+	// Name is the unique rule name.
+	// Notice it is case-insensitive according to RFC 5234 Section 2.1.
+	Name string
 }
 
-func (erln elemRulename) String() string {
-	return erln.name
+func (erln ElemRulename) String() string {
+	return erln.Name
 }
 
-var _ elemItf = (*elemRulename)(nil)
+var _ ElemItf = (*ElemRulename)(nil)
 
-type elemGroup struct {
-	alternation alternation
+// ElemGroup represents an ABNF group object.
+// It will be straightly passed through with its underlying alternation.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemGroup struct {
+	Alternation Alternation
 }
 
-func (egrp elemGroup) String() string {
-	return "(" + egrp.alternation.String() + ")"
+func (egrp ElemGroup) String() string {
+	return "(" + egrp.Alternation.String() + ")"
 }
 
-var _ elemItf = (*elemGroup)(nil)
+var _ ElemItf = (*ElemGroup)(nil)
 
-type elemOption struct {
-	alternation alternation
+// ElemOption represents an ABNF option object.
+// It will be straightly converted to a 0*1 repetition.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemOption struct {
+	Alternation Alternation
 }
 
-func (eopt elemOption) String() string {
-	return "[" + eopt.alternation.String() + "]"
+func (eopt ElemOption) String() string {
+	return "[" + eopt.Alternation.String() + "]"
 }
 
-var _ elemItf = (*elemOption)(nil)
+var _ ElemItf = (*ElemOption)(nil)
 
-type elemCharVal struct {
-	// sensitive is by default false, added for support with RFC 7405
-	sensitive bool
-	values    []byte
+// ElemCharVal represents an ABNF char-val object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemCharVal struct {
+	// Sensitive is by default false, support clarrified by RFC 7405.
+	Sensitive bool
+	Values    []byte
 }
 
-func (ecvl elemCharVal) String() string {
+func (ecvl ElemCharVal) String() string {
 	str := ""
-	for _, val := range ecvl.values {
+	for _, val := range ecvl.Values {
 		str += string(val)
 	}
 	return `"` + str + `"`
 }
 
-var _ elemItf = (*elemCharVal)(nil)
+var _ ElemItf = (*ElemCharVal)(nil)
 
-//   - `status` is `statSeries`: `elems` contains all the expected
-//     values in the order of the grammar defined them ;
-//   - `status` is `statRange`: `elems` contains the start and end
-//     bounds (so no more than two).
-type elemNumVal struct {
-	base   string
-	status status
-	elems  []string
+// ElemNumVal represents an ABNF num-val object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemNumVal struct {
+	Base string
+	// Status could be:
+	// - `statSeries`: `elems` contains all the expected
+	//   values in the order of the grammar defined them ;
+	// - `statRange`: `elems` contains the start and end
+	//   bounds (so no more than two).
+	Status Status
+	Elems  []string
 }
 
-func (envl elemNumVal) String() string {
-	str := "%" + envl.base
+func (envl ElemNumVal) String() string {
+	str := "%" + envl.Base
 	spl := "."
-	if envl.status == statRange {
+	if envl.Status == StatRange {
 		spl = "-"
 	}
-	for _, val := range envl.elems {
+	for _, val := range envl.Elems {
 		str += val + spl
 	}
 	return strings.TrimSuffix(str, spl)
 }
 
-var _ elemItf = (*elemNumVal)(nil)
+var _ ElemItf = (*ElemNumVal)(nil)
 
-type elemProseVal struct {
+// ElemProseVal represents an ABNF prose-val object.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type ElemProseVal struct {
 	values []string
 }
 
-func (epvl elemProseVal) String() string {
+func (epvl ElemProseVal) String() string {
 	str := ""
 	for _, val := range epvl.values {
 		str += val
@@ -148,41 +198,46 @@ func (epvl elemProseVal) String() string {
 	return "<" + str + ">"
 }
 
-var _ elemItf = (*elemProseVal)(nil)
+var _ ElemItf = (*ElemProseVal)(nil)
 
-type status int
+// Status defines the type of a num-val, rather StatSeries or StatRange.
+//
+// This is exposed for custom lexing purposes, please don't use it else.
+type Status int
 
 const (
-	statSeries status = iota
-	statRange
+	// StatSeries represents a serie of unique byte value.
+	StatSeries Status = iota
+	// StatRange represents an interval of possible bytes.
+	StatRange
 )
 
-// ABNF is the pre-computed ABNF grammar.
+// ABNF is the manually parsed+lexed+validated ABNF grammar.
 var ABNF = &Grammar{
-	rulemap: map[string]*rule{
-		abnfRulelist.name:              abnfRulelist,
-		abnfRule.name:                  abnfRule,
-		abnfRulename.name:              abnfRulename,
-		abnfDefinedAs.name:             abnfDefinedAs,
-		abnfElements.name:              abnfElements,
-		abnfCWsp.name:                  abnfCWsp,
-		abnfCNl.name:                   abnfCNl,
-		abnfComment.name:               abnfComment,
-		abnfAlternation.name:           abnfAlternation,
-		abnfConcatenation.name:         abnfConcatenation,
-		abnfRepetition.name:            abnfRepetition,
-		abnfRepeat.name:                abnfRepeat,
-		abnfElement.name:               abnfElement,
-		abnfGroup.name:                 abnfGroup,
-		abnfOption.name:                abnfOption,
-		abnfCharVal.name:               abnfCharVal,
-		abnfCaseInsensitiveString.name: abnfCaseInsensitiveString,
-		abnfCaseSensitiveString.name:   abnfCaseSensitiveString,
-		abnfQuotedString.name:          abnfQuotedString,
-		abnfNumVal.name:                abnfNumVal,
-		abnfBinVal.name:                abnfBinVal,
-		abnfDecVal.name:                abnfDecVal,
-		abnfHexVal.name:                abnfHexVal,
-		abnfProseVal.name:              abnfProseVal,
+	Rulemap: map[string]*Rule{
+		abnfRulelist.Name:              abnfRulelist,
+		abnfRule.Name:                  abnfRule,
+		abnfRulename.Name:              abnfRulename,
+		abnfDefinedAs.Name:             abnfDefinedAs,
+		abnfElements.Name:              abnfElements,
+		abnfCWsp.Name:                  abnfCWsp,
+		abnfCNl.Name:                   abnfCNl,
+		abnfComment.Name:               abnfComment,
+		abnfAlternation.Name:           abnfAlternation,
+		abnfConcatenation.Name:         abnfConcatenation,
+		abnfRepetition.Name:            abnfRepetition,
+		abnfRepeat.Name:                abnfRepeat,
+		abnfElement.Name:               abnfElement,
+		abnfGroup.Name:                 abnfGroup,
+		abnfOption.Name:                abnfOption,
+		abnfCharVal.Name:               abnfCharVal,
+		abnfCaseInsensitiveString.Name: abnfCaseInsensitiveString,
+		abnfCaseSensitiveString.Name:   abnfCaseSensitiveString,
+		abnfQuotedString.Name:          abnfQuotedString,
+		abnfNumVal.Name:                abnfNumVal,
+		abnfBinVal.Name:                abnfBinVal,
+		abnfDecVal.Name:                abnfDecVal,
+		abnfHexVal.Name:                abnfHexVal,
+		abnfProseVal.Name:              abnfProseVal,
 	},
 }

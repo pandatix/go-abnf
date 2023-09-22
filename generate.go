@@ -3,20 +3,9 @@ package goabnf
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"math/rand"
 	"strings"
 )
-
-type ErrCyclicRule struct {
-	Rulename string
-}
-
-var _ error = (*ErrCyclicRule)(nil)
-
-func (err ErrCyclicRule) Error() string {
-	return fmt.Sprintf("can't generate a content as the rule %s involves an unavoidable cycle", err.Rulename)
-}
 
 // Generate is an experimental feature that consumes a seed for
 // a pseudo-random number generator, used to randomly travel through
@@ -45,59 +34,56 @@ func (g *Grammar) Generate(seed int64, rulename string, opts ...GenerateOption) 
 		opt.apply(options)
 	}
 
-	// Generate actual content
-	rule := getRule(rulename, g.rulemap)
-	if rule == nil {
-		return nil, errors.New("rule is not part of the grammar or the core rules")
-	}
+	// Generate actual content (rule exists, checked first)
+	rule := GetRule(rulename, g.Rulemap)
 	out := []byte{}
-	generateAlt(rand, g, &out, rule.alternation, options)
+	generateAlt(rand, g, &out, rule.Alternation, options)
 	return out, nil
 }
 
-func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt alternation, options *genOpts) {
+func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, options *genOpts) {
 	// Select any possible path in the alternation
-	cnt := alt.concatenations[int(rand.Int63())%len(alt.concatenations)]
+	cnt := alt.Concatenations[int(rand.Int63())%len(alt.Concatenations)]
 
 	// Travel through all the repetitions
-	for _, rep := range cnt.repetitions {
-		repmax := rep.max
+	for _, rep := range cnt.Repetitions {
+		repmax := rep.Max
 		if repmax == inf {
 			repmax = options.repMax
 		}
-		torep := rep.min + int(rand.Int63())%(repmax-rep.min+1)
-		for i := 0; generateKeepGoing(i, torep, rep.min, len(*out), options.threshold); i++ {
-			switch elem := rep.element.(type) {
-			case elemRulename:
-				rule := getRule(elem.name, g.rulemap)
-				generateAlt(rand, g, out, rule.alternation, options)
+		torep := rep.Min + int(rand.Int63())%(repmax-rep.Min+1)
+		for i := 0; generateKeepGoing(i, torep, rep.Min, len(*out), options.threshold); i++ {
+			switch elem := rep.Element.(type) {
+			case ElemRulename:
+				rule := GetRule(elem.Name, g.Rulemap)
+				generateAlt(rand, g, out, rule.Alternation, options)
 
-			case elemOption:
+			case ElemOption:
 				if (rand.Int63() % 2) == 0 {
-					generateAlt(rand, g, out, elem.alternation, options)
+					generateAlt(rand, g, out, elem.Alternation, options)
 				}
 
-			case elemGroup:
-				generateAlt(rand, g, out, elem.alternation, options)
+			case ElemGroup:
+				generateAlt(rand, g, out, elem.Alternation, options)
 
-			case elemNumVal:
-				switch elem.status {
-				case statRange:
-					min, max := atob(elem.elems[0], elem.base), atob(elem.elems[1], elem.base)
+			case ElemNumVal:
+				switch elem.Status {
+				case StatRange:
+					min, max := atob(elem.Elems[0], elem.Base), atob(elem.Elems[1], elem.Base)
 					appendPtr(out, min+byte(rand.Int63())%(max-min+1))
 
-				case statSeries:
-					for _, v := range elem.elems {
-						appendPtr(out, atob(v, elem.base))
+				case StatSeries:
+					for _, v := range elem.Elems {
+						appendPtr(out, atob(v, elem.Base))
 					}
 				}
 
-			case elemProseVal:
+			case ElemProseVal:
 				panic("unable to generate prose val")
 
-			case elemCharVal:
-				for _, val := range elem.values {
-					if elem.sensitive && (int(rand.Int63())%2) == 0 {
+			case ElemCharVal:
+				for _, val := range elem.Values {
+					if elem.Sensitive && (int(rand.Int63())%2) == 0 {
 						val = bytes.ToUpper([]byte{val})[0]
 					}
 					appendPtr(out, val)
@@ -159,19 +145,29 @@ func (opt thresholdOption) apply(opts *genOpts) {
 // produces a cycle (v:rule-*->rulen) AND that this path is mandatory
 // (no option, no repetition with a minimum of zero).
 func checkCanGenerateSafely(g *Grammar, rulename string) error {
-	rule := getRule(rulename, g.rulemap)
+	rule := GetRule(rulename, g.Rulemap)
 	if rule == nil {
-		return errors.New("unknown rule")
+		return &ErrRuleNotFound{
+			Rulename: rulename,
+		}
 	}
 	knownRules := map[string]struct{}{
 		rulename: {},
 	}
-	return checkCanGenerateSafelyAlt(g, knownRules, rule.alternation)
+	if err := checkCanGenerateSafelyAlt(g, knownRules, rule.Alternation); err != nil {
+		if err, ok := err.(*ErrCyclicRule); ok {
+			return err
+		}
+		return &ErrCyclicRule{
+			Rulename: rulename,
+		}
+	}
+	return nil
 }
 
-func checkCanGenerateSafelyAlt(g *Grammar, knownRules map[string]struct{}, alt alternation) error {
-	errs := make([]error, len(alt.concatenations))
-	for alti, concat := range alt.concatenations {
+func checkCanGenerateSafelyAlt(g *Grammar, knownRules map[string]struct{}, alt Alternation) error {
+	errs := make([]error, len(alt.Concatenations))
+	for alti, concat := range alt.Concatenations {
 		errs[alti] = checkCanGenerateSafelyConcat(g, knownRules, concat)
 	}
 	allErrors := true
@@ -186,36 +182,41 @@ func checkCanGenerateSafelyAlt(g *Grammar, knownRules map[string]struct{}, alt a
 	return nil
 }
 
-func checkCanGenerateSafelyConcat(g *Grammar, knownRules map[string]struct{}, concat concatenation) error {
-	for _, rep := range concat.repetitions {
+func checkCanGenerateSafelyConcat(g *Grammar, knownRules map[string]struct{}, concat Concatenation) error {
+	for _, rep := range concat.Repetitions {
 		// If the repetition is not mandatory, we can escape so can
 		// generate safely.
-		if rep.min == 0 {
+		if rep.Min == 0 {
 			continue
 		}
 
 		// Deal with the repetition itself then.
-		switch elem := rep.element.(type) {
-		case elemRulename:
+		switch elem := rep.Element.(type) {
+		case ElemRulename:
 			// Copy rules to only focus on rules that made use come here.
 			// If shared with others, the dependency graph can lead to the same rule
 			// from another path without it being a cycle, thus must be handled.
 			scopeRules := cpMap(knownRules)
 			for known := range scopeRules {
-				if strings.EqualFold(elem.name, known) {
+				if strings.EqualFold(elem.Name, known) {
 					return &ErrCyclicRule{
-						Rulename: elem.name,
+						Rulename: elem.Name,
 					}
 				}
 			}
-			rule := getRule(elem.name, g.rulemap)
-			scopeRules[elem.name] = struct{}{}
-			if err := checkCanGenerateSafelyAlt(g, scopeRules, rule.alternation); err != nil {
-				return err
+			rule := GetRule(elem.Name, g.Rulemap)
+			scopeRules[elem.Name] = struct{}{}
+			if err := checkCanGenerateSafelyAlt(g, scopeRules, rule.Alternation); err != nil {
+				if err, ok := err.(*ErrCyclicRule); ok {
+					return err
+				}
+				return &ErrCyclicRule{
+					Rulename: elem.Name,
+				}
 			}
 
-		case elemGroup:
-			if err := checkCanGenerateSafelyAlt(g, knownRules, elem.alternation); err != nil {
+		case ElemGroup:
+			if err := checkCanGenerateSafelyAlt(g, knownRules, elem.Alternation); err != nil {
 				return err
 			}
 

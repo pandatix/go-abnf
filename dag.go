@@ -7,32 +7,35 @@ type node struct {
 	Dependencies   []string
 }
 
-// Depgraph generates the
+// Depgraph contains for each rule the rules it depends on.
+// Notice it does not differentiate between a mandatory dependency
+// or an avoidable one.
 type Depgraph map[string]*node
 
-// DependencyGraph creates a dependency graph
+// DependencyGraph creates a dependency graph for a whole grammar.
+// It includes core rules only if necessary.
 func (g *Grammar) DependencyGraph() Depgraph {
 	graph := Depgraph{}
-	for _, rule := range g.rulemap {
-		graph[rule.name] = &node{
-			Rulename:     rule.name,
-			Dependencies: getDependencies(rule.alternation),
+	for _, rule := range g.Rulemap {
+		graph[rule.Name] = &node{
+			Rulename:     rule.Name,
+			Dependencies: getDependencies(rule.Alternation),
 		}
 	}
 	return graph
 }
 
-func getDependencies(alt alternation) []string {
+func getDependencies(alt Alternation) []string {
 	deps := []string{}
-	for _, conc := range alt.concatenations {
-		for _, rep := range conc.repetitions {
-			switch v := rep.element.(type) {
-			case elemGroup:
-				deps = appendDeps(deps, getDependencies(v.alternation)...)
-			case elemOption:
-				deps = appendDeps(deps, getDependencies(v.alternation)...)
-			case elemRulename:
-				deps = appendDeps(deps, v.name)
+	for _, conc := range alt.Concatenations {
+		for _, rep := range conc.Repetitions {
+			switch v := rep.Element.(type) {
+			case ElemGroup:
+				deps = appendDeps(deps, getDependencies(v.Alternation)...)
+			case ElemOption:
+				deps = appendDeps(deps, getDependencies(v.Alternation)...)
+			case ElemRulename:
+				deps = appendDeps(deps, v.Name)
 			}
 		}
 	}

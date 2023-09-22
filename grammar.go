@@ -1,7 +1,6 @@
 package goabnf
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,7 +9,7 @@ import (
 // Grammar represents an ABNF grammar as defined by RFC 5234.
 // It is constituted of a set of rules with an unique name.
 type Grammar struct {
-	rulemap map[string]*rule
+	Rulemap map[string]*Rule
 }
 
 // IsValid checks there exist at least a path that completly consumes
@@ -28,7 +27,7 @@ func (g *Grammar) IsValid(rulename string, input []byte) bool {
 // preserve the initial order nor pretty print it.
 func (g *Grammar) String() string {
 	str := ""
-	for _, rule := range g.rulemap {
+	for _, rule := range g.Rulemap {
 		str += rule.String() + "\r\n"
 	}
 	return str
@@ -38,7 +37,7 @@ func (g *Grammar) String() string {
 func (g *Grammar) PrettyPrint() string {
 	// Determine maximum rulename length
 	rulenameLength := 0
-	for rulename := range g.rulemap {
+	for rulename := range g.Rulemap {
 		if len(rulename) > rulenameLength {
 			rulenameLength = len(rulename)
 		}
@@ -46,13 +45,13 @@ func (g *Grammar) PrettyPrint() string {
 
 	// Construct output
 	out := ""
-	for rulename, rl := range g.rulemap {
+	for rulename, rl := range g.Rulemap {
 		spaces := ""
 		for i := 0; i < rulenameLength-len(rulename); i++ {
 			spaces += " "
 		}
 
-		out += fmt.Sprintf("%s%s = %s\r\n", rulename, spaces, rl.alternation)
+		out += fmt.Sprintf("%s%s = %s\r\n", rulename, spaces, rl.Alternation)
 	}
 	return out
 }
@@ -101,11 +100,13 @@ func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
 	path := (*Path)(nil)
 	switch len(paths) {
 	case 0:
-		return nil, errors.New("no solution found, input ABNF grammar may be invalid")
+		return nil, ErrNoSolutionFound
 	case 1:
 		path = paths[0]
 	default:
-		return nil, errors.New("multiple solutions found, this should not happen. Please open an issue. This could eventually need an Erratum from IETF tracking")
+		return nil, &ErrMultipleSolutionsFound{
+			Paths: paths,
+		}
 	}
 
 	// Lex path
@@ -131,13 +132,15 @@ func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
 // an error of type *ErrParse.
 func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error) {
 	// Select root rule to begin with
-	rootRule := getRule(rootRulename, grammar.rulemap)
+	rootRule := GetRule(rootRulename, grammar.Rulemap)
 	if rootRule == nil {
-		return nil, fmt.Errorf("root rule %s not found", rootRulename)
+		return nil, &ErrRuleNotFound{
+			Rulename: rootRulename,
+		}
 	}
 
 	// Parse input with grammar's initial rule
-	possibilites := solveAlt(grammar, rootRule.alternation, input, 0)
+	possibilites := solveAlt(grammar, rootRule.Alternation, input, 0)
 
 	// Look for solutions that consumed the whole input
 	outPoss := []*Path{}
@@ -152,14 +155,14 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 	return outPoss, nil
 }
 
-func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Path {
+func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Path {
 	altPossibilities := []*Path{}
 
-	for _, concat := range alt.concatenations {
+	for _, concat := range alt.Concatenations {
 		cntPossibilities := []*Path{}
 
 		// Init with first repetition (guarantee of at least 1 repetition)
-		possibilities := solveRep(grammar, concat.repetitions[0], input, index)
+		possibilities := solveRep(grammar, concat.Repetitions[0], input, index)
 		for _, poss := range possibilities {
 			cntPossibilities = append(cntPossibilities, &Path{
 				Subpaths:  []*Path{poss},
@@ -171,8 +174,8 @@ func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Pat
 
 		// Keep going and multiply previous paths with current repetition
 		// resulting paths
-		for i := 1; i < len(concat.repetitions); i++ {
-			rep := concat.repetitions[i]
+		for i := 1; i < len(concat.Repetitions); i++ {
+			rep := concat.Repetitions[i]
 
 			tmpPossibilities := []*Path{}
 			for _, cntPoss := range cntPossibilities {
@@ -208,14 +211,14 @@ func solveAlt(grammar *Grammar, alt alternation, input []byte, index int) []*Pat
 	return altPossibilities
 }
 
-func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path {
+func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path {
 	// Fast check won't be out of bounds with first read
 	if !solveKeepGoing(rep, input, index, 0) {
 		return []*Path{}
 	}
 
 	// Find first repetition paths.
-	paths := solveElem(grammar, rep.element, input, index)
+	paths := solveElem(grammar, rep.Element, input, index)
 	pindex := 0
 
 	y := 1
@@ -224,7 +227,7 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 	for kg {
 		iterPaths := []*Path{}
 		for _, poss := range paths[pindex:] {
-			elemPossibilities := solveElem(grammar, rep.element, input, poss.End)
+			elemPossibilities := solveElem(grammar, rep.Element, input, poss.End)
 			for _, elemPoss := range elemPossibilities {
 				ipsubs := make([]*Path, len(poss.Subpaths), len(poss.Subpaths)+1)
 				copy(ipsubs, poss.Subpaths)
@@ -249,14 +252,14 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 		}
 		// If there exist solutions in the given interval, keep them
 		// for future iterations.
-		if y >= rep.min {
+		if y >= rep.Min {
 			pindex += len(paths) - pindex
 			paths = append(paths, iterPaths...)
 		}
 	}
 
 	// Add empty solution if is a valid path
-	if rep.min == 0 {
+	if rep.Min == 0 {
 		paths = append(paths, &Path{
 			Subpaths: []*Path{
 				{
@@ -275,33 +278,33 @@ func solveRep(grammar *Grammar, rep repetition, input []byte, index int) []*Path
 	return paths
 }
 
-func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path {
+func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path {
 	paths := []*Path{}
 
 	switch v := elem.(type) {
-	case elemRulename:
-		rule := getRule(v.name, grammar.rulemap)
-		possibilities := solveAlt(grammar, rule.alternation, input, index)
+	case ElemRulename:
+		rule := GetRule(v.Name, grammar.Rulemap)
+		possibilities := solveAlt(grammar, rule.Alternation, input, index)
 		for _, poss := range possibilities {
-			poss.MatchRule = v.name
+			poss.MatchRule = v.Name
 			paths = append(paths, poss)
 		}
 
-	case elemOption:
-		paths = solveRep(grammar, repetition{
-			min:     0,
-			max:     1,
-			element: elemGroup(v),
+	case ElemOption:
+		paths = solveRep(grammar, Repetition{
+			Min:     0,
+			Max:     1,
+			Element: ElemGroup(v),
 		}, input, index)
 
-	case elemGroup:
-		paths = solveAlt(grammar, v.alternation, input, index)
+	case ElemGroup:
+		paths = solveAlt(grammar, v.Alternation, input, index)
 
-	case elemNumVal:
-		switch v.status {
-		case statRange:
+	case ElemNumVal:
+		switch v.Status {
+		case StatRange:
 			// Any matches
-			min, max := atob(v.elems[0], v.base), atob(v.elems[1], v.base)
+			min, max := atob(v.Elems[0], v.Base), atob(v.Elems[1], v.Base)
 			if min <= input[index] && input[index] <= max {
 				paths = append(paths, &Path{
 					Subpaths:  nil,
@@ -311,12 +314,12 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 				})
 			}
 
-		case statSeries:
+		case StatSeries:
 			// Only match if all matches in order
 			initialIndex := index
 			matches := true
-			for i := 0; i < len(v.elems) && matches; i++ {
-				if atob(v.elems[i], v.base) != input[index] {
+			for i := 0; i < len(v.Elems) && matches; i++ {
+				if atob(v.Elems[i], v.Base) != input[index] {
 					matches = false
 				}
 				index++
@@ -331,14 +334,14 @@ func solveElem(grammar *Grammar, elem elemItf, input []byte, index int) []*Path 
 			}
 		}
 
-	case elemProseVal:
+	case ElemProseVal:
 		panic("elemProseVal")
 
-	case elemCharVal:
+	case ElemCharVal:
 		initialIndex := index
 		matches := true
-		for i := 0; i < len(v.values) && matches; i++ {
-			if sensequal(v.values[i], input[index], v.sensitive) {
+		for i := 0; i < len(v.Values) && matches; i++ {
+			if sensequal(v.Values[i], input[index], v.Sensitive) {
 				index++
 			} else {
 				matches = false
@@ -375,31 +378,31 @@ func strmin(r byte) byte {
 // totally consumed.
 // Else, it checks if input has been totally consumed AND if there
 // could be other repetitions.
-func solveKeepGoing(rep repetition, input []byte, index, y int) bool {
+func solveKeepGoing(rep Repetition, input []byte, index, y int) bool {
 	// Find if could handle the length of this repetition
 	// considering its type
 	couldHandle := true
-	switch v := rep.element.(type) {
-	case elemNumVal:
+	switch v := rep.Element.(type) {
+	case ElemNumVal:
 		// Check only one byte
 		couldHandle = index < len(input)
 
-	case elemCharVal:
+	case ElemCharVal:
 		// Check current index+length of char value string is not longer than the input
-		couldHandle = index+len(v.values)-1 < len(input)
+		couldHandle = index+len(v.Values)-1 < len(input)
 
-	case elemProseVal:
+	case ElemProseVal:
 		panic("elemProseVal")
 	}
 
 	// If no maximum repetition, only bound to input length thus
 	// if it could handle its consumption given repetition's type
-	if rep.max == inf {
+	if rep.Max == inf {
 		return couldHandle
 	}
 	// If has a maximum repetition, check could handle AND will remain
 	// under boundary.
-	return couldHandle && y < rep.max
+	return couldHandle && y < rep.Max
 }
 
 // LexABNF is the lexer for the ABNF structural model implemented.
@@ -413,8 +416,8 @@ func LexABNF(input []byte, path *Path) (*Grammar, error) {
 
 func lexABNF(input []byte, path *Path) (any, error) {
 	switch path.MatchRule {
-	case abnfRulelist.name:
-		mp := map[string]*rule{}
+	case abnfRulelist.Name:
+		mp := map[string]*Rule{}
 
 		// Skip heading empty line if exist
 		if path.Subpaths[0].MatchRule != "" {
@@ -422,8 +425,8 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			rl := rltmp.(rule)
-			mp[rl.name] = &rl
+			rl := rltmp.(Rule)
+			mp[rl.Name] = &rl
 		}
 
 		for i := 1; i < len(path.Subpaths); i++ {
@@ -437,47 +440,49 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			rl := rltmp.(rule)
+			rl := rltmp.(Rule)
 
-			if rule := getRule(rl.name, mp); rule != nil {
-				return nil, fmt.Errorf("rule %s already exist", rl.name)
+			if rule := GetRule(rl.Name, mp); rule != nil {
+				return nil, &ErrDuplicatedRule{
+					Rulename: rl.Name,
+				}
 			}
-			mp[rl.name] = &rl
+			mp[rl.Name] = &rl
 		}
 		return &Grammar{
-			rulemap: mp,
+			Rulemap: mp,
 		}, nil
 
-	case abnfRule.name:
+	case abnfRule.Name:
 		rulename := string(input[path.Subpaths[0].Start:path.Subpaths[0].End])
 		pth := path.Subpaths[2].Subpaths[0] // -> rule -> elements -> alternation
 		alttmp, err := lexABNF(input, pth)
 		if err != nil {
 			return nil, err
 		}
-		return rule{
-			name:        rulename,
-			alternation: alttmp.(alternation),
+		return Rule{
+			Name:        rulename,
+			Alternation: alttmp.(Alternation),
 		}, nil
 
-	case abnfRulename.name:
-		return elemRulename{
-			name: string(input[path.Start:path.End]),
+	case abnfRulename.Name:
+		return ElemRulename{
+			Name: string(input[path.Start:path.End]),
 		}, nil
 
-	case abnfAlternation.name:
+	case abnfAlternation.Name:
 		// Extract first concatenation, must exist
-		concatenations := make([]concatenation, 0, 1)
+		concatenations := make([]Concatenation, 0, 1)
 		cnttmp, err := lexABNF(input, path.Subpaths[0])
 		if err != nil {
 			return nil, err
 		}
-		concatenations = append(concatenations, cnttmp.(concatenation))
+		concatenations = append(concatenations, cnttmp.(Concatenation))
 
 		// If none next, don't start following extraction
 		if len(path.Subpaths) == 1 {
-			return alternation{
-				concatenations: concatenations,
+			return Alternation{
+				Concatenations: concatenations,
 			}, nil
 		}
 
@@ -485,7 +490,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		subs := path.Subpaths[1].Subpaths
 		icnt := 1
 		for {
-			if strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.name) {
+			if strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.Name) {
 				break
 			}
 			icnt++
@@ -494,7 +499,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		concatenations = append(concatenations, cnttmp.(concatenation))
+		concatenations = append(concatenations, cnttmp.(Concatenation))
 
 		// Following are hits too, last of each subpaths is another concatenation
 		for _, sub := range subs[icnt+1:] {
@@ -502,17 +507,17 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			concatenations = append(concatenations, cnttmp.(concatenation))
+			concatenations = append(concatenations, cnttmp.(Concatenation))
 		}
 
-		return alternation{
-			concatenations: concatenations,
+		return Alternation{
+			Concatenations: concatenations,
 		}, nil
 
-	case abnfGroup.name:
+	case abnfGroup.Name:
 		alt := (*Path)(nil)
 		for _, sub := range path.Subpaths {
-			if strings.EqualFold(sub.MatchRule, abnfAlternation.name) {
+			if strings.EqualFold(sub.MatchRule, abnfAlternation.Name) {
 				alt = sub
 				break
 			}
@@ -521,23 +526,23 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return elemGroup{
-			alternation: alttmp.(alternation),
+		return ElemGroup{
+			Alternation: alttmp.(Alternation),
 		}, nil
 
-	case abnfConcatenation.name:
+	case abnfConcatenation.Name:
 		// Extract first repetition, must exist
-		repetitions := make([]repetition, 0, 1)
+		repetitions := make([]Repetition, 0, 1)
 		reptmp, err := lexABNF(input, path.Subpaths[0])
 		if err != nil {
 			return nil, err
 		}
-		repetitions = append(repetitions, reptmp.(repetition))
+		repetitions = append(repetitions, reptmp.(Repetition))
 
 		// If none next, don't start following extraction
 		if len(path.Subpaths) == 1 {
-			return concatenation{
-				repetitions: repetitions,
+			return Concatenation{
+				Repetitions: repetitions,
 			}, nil
 		}
 
@@ -545,7 +550,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		subs := path.Subpaths[1].Subpaths
 		irep := 1
 		for {
-			if strings.EqualFold(subs[irep].MatchRule, abnfRepetition.name) {
+			if strings.EqualFold(subs[irep].MatchRule, abnfRepetition.Name) {
 				break
 			}
 			irep++
@@ -554,7 +559,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		repetitions = append(repetitions, reptmp.(repetition))
+		repetitions = append(repetitions, reptmp.(Repetition))
 
 		// Following are hits too, last of each subpaths is another concatenation
 		for _, sub := range subs[irep+1:] {
@@ -562,14 +567,14 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			repetitions = append(repetitions, reptmp.(repetition))
+			repetitions = append(repetitions, reptmp.(Repetition))
 		}
 
-		return concatenation{
-			repetitions: repetitions,
+		return Concatenation{
+			Repetitions: repetitions,
 		}, nil
 
-	case abnfRepetition.name:
+	case abnfRepetition.Name:
 		min, max := 1, 1 // default to 1
 
 		var element *Path
@@ -617,16 +622,16 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return repetition{
-			min:     min,
-			max:     max,
-			element: elemtmp.(elemItf),
+		return Repetition{
+			Min:     min,
+			Max:     max,
+			Element: elemtmp.(ElemItf),
 		}, nil
 
-	case abnfOption.name:
+	case abnfOption.Name:
 		ialt := 1
 		for {
-			if strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.name) {
+			if strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.Name) {
 				break
 			}
 			ialt++
@@ -635,41 +640,41 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return elemOption{
-			alternation: alttmp.(alternation),
+		return ElemOption{
+			Alternation: alttmp.(Alternation),
 		}, nil
 
-	case abnfCharVal.name:
+	case abnfCharVal.Name:
 		sensitive := false // by default insensitive (cf. RFC 7405)
-		if strings.EqualFold(path.Subpaths[0].MatchRule, abnfCaseSensitiveString.name) {
+		if strings.EqualFold(path.Subpaths[0].MatchRule, abnfCaseSensitiveString.Name) {
 			sensitive = true
 		}
 
 		value := []byte{}
 		for _, sub := range path.Subpaths[0].Subpaths {
-			if strings.EqualFold(sub.MatchRule, abnfQuotedString.name) {
+			if strings.EqualFold(sub.MatchRule, abnfQuotedString.Name) {
 				value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
 				break
 			}
 		}
 
-		return elemCharVal{
-			sensitive: sensitive,
-			values:    value,
+		return ElemCharVal{
+			Sensitive: sensitive,
+			Values:    value,
 		}, nil
 
-	case abnfProseVal.name:
+	case abnfProseVal.Name:
 		values := []string{}
 		for i := path.Start + 1; i < path.End-1; i++ {
 			values = append(values, string(input[i]))
 		}
-		return elemProseVal{
+		return ElemProseVal{
 			values: values,
 		}, nil
 
-	case abnfNumVal.name:
+	case abnfNumVal.Name:
 		basePath := path.Subpaths[1].Subpaths[0]
-		stat := statSeries
+		stat := StatSeries
 		elems := []string{
 			// First hit always at the same spot
 			string(input[basePath.Subpaths[1].Start:basePath.Subpaths[1].End]),
@@ -677,11 +682,11 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 		var base string
 		switch basePath.MatchRule {
-		case abnfBinVal.name:
+		case abnfBinVal.Name:
 			base = "b"
-		case abnfDecVal.name:
+		case abnfDecVal.Name:
 			base = "d"
-		case abnfHexVal.name:
+		case abnfHexVal.Name:
 			base = "x"
 		}
 
@@ -696,7 +701,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			// Could be either serie or range
 			splc := input[hit.Subpaths[0].Start:hit.Subpaths[0].End]
 			if splc[0] == '-' {
-				stat = statRange
+				stat = StatRange
 			}
 
 			// Second hit always at the same spot
@@ -709,10 +714,10 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			}
 		}
 
-		return elemNumVal{
-			base:   base,
-			status: stat,
-			elems:  elems,
+		return ElemNumVal{
+			Base:   base,
+			Status: stat,
+			Elems:  elems,
 		}, nil
 	}
 
@@ -738,38 +743,42 @@ func lexABNF(input []byte, path *Path) (any, error) {
 // To update this list, please open an issue.
 func SemvalABNF(g *Grammar) error {
 	// Check all dependencies exist
-	for _, rule := range g.rulemap {
-		deps := getDependencies(rule.alternation)
+	for _, rule := range g.Rulemap {
+		deps := getDependencies(rule.Alternation)
 		for _, dep := range deps {
-			r := getRule(dep, g.rulemap)
+			r := GetRule(dep, g.Rulemap)
 			if r == nil {
-				return fmt.Errorf("missing dependency (rule) %s", dep)
+				return &ErrDependencyNotFound{
+					Rulename: dep,
+				}
 			}
 		}
 	}
 
-	for _, rule := range g.rulemap {
-		if err := semvalAlternation(rule.alternation); err != nil {
+	for _, rule := range g.Rulemap {
+		if err := semvalAlternation(rule.Alternation); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func semvalAlternation(alt alternation) error {
-	for _, concat := range alt.concatenations {
-		for _, rep := range concat.repetitions {
+func semvalAlternation(alt Alternation) error {
+	for _, concat := range alt.Concatenations {
+		for _, rep := range concat.Repetitions {
 			// min <= max
-			if rep.max != inf && rep.min > rep.max {
-				return fmt.Errorf("invalid semantic of input ABNF grammar for repetition %s", rep.String())
+			if rep.Max != inf && rep.Min > rep.Max {
+				return &ErrSemanticRepetition{
+					Repetition: rep,
+				}
 			}
-			switch elem := rep.element.(type) {
-			case elemGroup:
-				if err := semvalAlternation(elem.alternation); err != nil {
+			switch elem := rep.Element.(type) {
+			case ElemGroup:
+				if err := semvalAlternation(elem.Alternation); err != nil {
 					return err
 				}
-			case elemOption:
-				if err := semvalAlternation(elem.alternation); err != nil {
+			case ElemOption:
+				if err := semvalAlternation(elem.Alternation); err != nil {
 					return err
 				}
 			}
