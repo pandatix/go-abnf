@@ -419,35 +419,43 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfRulelist.Name:
 		mp := map[string]*Rule{}
 
-		// Skip heading empty line if exist
-		if path.Subpaths[0].MatchRule != "" {
-			rltmp, err := lexABNF(input, path.Subpaths[0])
-			if err != nil {
-				return nil, err
-			}
-			rl := rltmp.(Rule)
-			mp[rl.Name] = &rl
-		}
+		sub := path.Subpaths[0]
+		for i := 0; i < len(path.Subpaths); i++ {
+			// Only work on rules (i.e. skip empty lines)
+			if sub.MatchRule == "rule" {
+				// Lex it to actual ABNF rule object
+				rltmp, err := lexABNF(input, sub)
+				if err != nil {
+					return nil, err
+				}
+				rl := rltmp.(Rule)
 
-		for i := 1; i < len(path.Subpaths); i++ {
-			sub := path.Subpaths[i].Subpaths[0]
-
-			// Skip empty lines
-			if sub.MatchRule != "rule" {
-				continue
-			}
-			rltmp, err := lexABNF(input, sub)
-			if err != nil {
-				return nil, err
-			}
-			rl := rltmp.(Rule)
-
-			if rule := GetRule(rl.Name, mp); rule != nil {
-				return nil, &ErrDuplicatedRule{
-					Rulename: rl.Name,
+				// Determine the "defined-as" characters -> new rule ("=") or alternation ("=/")
+				// TODO handle case of core rules, should not be modified
+				definedAs := strings.TrimSpace(string(input[sub.Subpaths[1].Start:sub.Subpaths[1].End]))
+				rule := GetRule(rl.Name, mp)
+				switch definedAs {
+				case "=":
+					if rule != nil {
+						return nil, &ErrDuplicatedRule{
+							Rulename: rl.Name,
+						}
+					}
+					mp[rl.Name] = &rl
+				case "=/":
+					if rule == nil {
+						return nil, &ErrRuleNotFound{
+							Rulename: rl.Name,
+						}
+					}
+					rule.Alternation.Concatenations = append(rule.Alternation.Concatenations, rl.Alternation.Concatenations...)
+					mp[rule.Name] = rule
 				}
 			}
-			mp[rl.Name] = &rl
+
+			if i+1 < len(path.Subpaths) {
+				sub = path.Subpaths[i+1].Subpaths[0]
+			}
 		}
 		return &Grammar{
 			Rulemap: mp,

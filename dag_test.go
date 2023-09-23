@@ -14,7 +14,7 @@ var nocycleAbnf []byte
 //go:embed testdata/cycle.abnf
 var cycleAbnf []byte
 
-func Test_U_IsDag(t *testing.T) {
+func Test_U_IsDAG(t *testing.T) {
 	t.Parallel()
 
 	var tests = map[string]struct {
@@ -30,7 +30,7 @@ func Test_U_IsDag(t *testing.T) {
 			ExpectedIsDag: false,
 		},
 		"abnf": {
-			// The ABNF grammar is cylic due to the Composite DP on alternation
+			// The ABNF grammar is cylic due to the ~Composite DP on alternation with group and option
 			Input:         abnfAbnf,
 			ExpectedIsDag: false,
 		},
