@@ -33,6 +33,18 @@ func (err ErrRuleNotFound) Error() string {
 	return fmt.Sprintf("rule %s was not found in grammar", err.Rulename)
 }
 
+// ErrCoreRuleModify is an error returned when an incremental alternative
+// for a core rule.
+type ErrCoreRuleModify struct {
+	CoreRulename string
+}
+
+var _ error = (*ErrCoreRuleModify)(nil)
+
+func (err ErrCoreRuleModify) Error() string {
+	return fmt.Sprintf("core rule %s can't be modified", err.CoreRulename)
+}
+
 // ErrDependencyNotFound is an error returned during ABNF grammar
 // semantic vaildation, if a rule depends on an unexisting rule.
 type ErrDependencyNotFound struct {

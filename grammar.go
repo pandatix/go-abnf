@@ -431,18 +431,25 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				rl := rltmp.(Rule)
 
 				// Determine the "defined-as" characters -> new rule ("=") or alternation ("=/")
-				// TODO handle case of core rules, should not be modified
 				definedAs := strings.TrimSpace(string(input[sub.Subpaths[1].Start:sub.Subpaths[1].End]))
-				rule := GetRule(rl.Name, mp)
 				switch definedAs {
 				case "=":
-					if rule != nil {
+					if rule := GetRule(rl.Name, mp); rule != nil {
 						return nil, &ErrDuplicatedRule{
 							Rulename: rl.Name,
 						}
 					}
 					mp[rl.Name] = &rl
 				case "=/":
+					// Block core rules from being used
+					rule := GetRule(rl.Name, nil)
+					if rule == nil {
+						return nil, &ErrCoreRuleModify{
+							CoreRulename: rl.Name,
+						}
+					}
+					// Get it from rulemap and ensure it already exist
+					rule = GetRule(rl.Name, mp)
 					if rule == nil {
 						return nil, &ErrRuleNotFound{
 							Rulename: rl.Name,
