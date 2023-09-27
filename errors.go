@@ -69,6 +69,16 @@ func (err ErrSemanticRepetition) Error() string {
 	return fmt.Sprintf("invalid semantic of input ABNF grammar for repetition %s", err.Repetition)
 }
 
+type ErrTooLargeNumeral struct {
+	Base, Value string
+}
+
+var _ error = (*ErrTooLargeNumeral)(nil)
+
+func (err ErrTooLargeNumeral) Error() string {
+	return fmt.Sprintf("too large numeral value %s for base %s", err.Value, err.Base)
+}
+
 // ErrDuplicatedRule is an error returned when the rule already
 // exist as part of the grammar.
 type ErrDuplicatedRule struct {

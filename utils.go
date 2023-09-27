@@ -16,8 +16,13 @@ func atob(str, base string) byte {
 }
 
 func bintob(str string) byte {
-	if len(str) > 8 { // 8 = log(base, sizeof(byte)*8), base=2
-		panic("too large bin value")
+	str = strings.TrimLeft(str, "0")
+
+	if len(str) > 8 { // 8 = ceil(log(base, 2^|us-ascii|)), base=2
+		panic(&ErrTooLargeNumeral{
+			Base:  "b",
+			Value: str,
+		})
 	}
 	out := 0
 	for i := 0; i < len(str); i++ {
@@ -37,8 +42,13 @@ func bintob(str string) byte {
 }
 
 func dectob(str string) byte {
-	if len(str) > 3 { // 3 = log(base, sizeof(byte)*8), base=10
-		panic("too large decimal value")
+	str = strings.TrimLeft(str, "0")
+
+	if len(str) > 3 || (len(str) == 3 && (str[0] == '1' && (str[1] > '2' || (str[1] == '2' && str[2] > '7')))) {
+		panic(&ErrTooLargeNumeral{
+			Base:  "d",
+			Value: str,
+		})
 	}
 	out := 0
 	for i := 0; i < len(str); i++ {
@@ -74,8 +84,13 @@ func dectob(str string) byte {
 }
 
 func hextob(str string) byte {
-	if len(str) > 8 { // 2 = log(base, sizeof(byte)*8), base=16
-		panic("too large hex value")
+	str = strings.TrimLeft(str, "0")
+
+	if len(str) > 2 || (len(str) == 2 && str[0] > '7') { // 2 = ceil(log(base, 2^|us-ascii|)), base=16
+		panic(&ErrTooLargeNumeral{
+			Base:  "x",
+			Value: str,
+		})
 	}
 	out := 0
 	for i := 0; i < len(str); i++ {

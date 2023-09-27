@@ -15,9 +15,13 @@ type Grammar struct {
 // IsValid checks there exist at least a path that completly consumes
 // input, hence is valide given this gramma and especially one of its
 // rule.
-// XXX can fail if the rulename can't safely generate
-func (g *Grammar) IsValid(rulename string, input []byte) bool {
-	paths, err := Parse(input, g, rulename)
+//
+// XXX panic if involves unvaoidable recursive rule.
+//   - checkCanGenerateSafely is not sufficient as parseAlt will recurse without limitation
+//     (checks there are none unavoidable path on its road, not that it won't fall/recurse into it)
+//   - deepness is not sufficient as recursing could be very difficult to predict
+func (g *Grammar) IsValid(rulename string, input []byte, opts ...ParseOption) bool {
+	paths, err := Parse(input, g, rulename, opts...)
 	return len(paths) != 0 && err == nil
 }
 
@@ -85,15 +89,17 @@ type Path struct {
 // ready-to-use grammar.
 func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
 	// Process functional options
-	o := &options{
-		validate: true,
+	o := &parseABNFOptions{
+		validate: defaultValidate,
 	}
 	for _, opt := range opts {
-		opt.apply(o)
+		opt.applyParseABNF(o)
 	}
 
 	// Parse input with ABNF grammar
-	paths, err := Parse(input, ABNF, "rulelist")
+	// Don't need to transmit deepness option, as we can be sure ABNF won't
+	// recurse indefinitely.
+	paths, err := Parse(input, ABNF, "rulelist", WithDeepnessThreshold(-1))
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +136,15 @@ func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
 // order to look for solutions. If many are found, it raises an error.
 // If the input is invalid (gramatically, incomplete...) it returns
 // an error of type *ErrParse.
-func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error) {
+func Parse(input []byte, grammar *Grammar, rootRulename string, opts ...ParseOption) ([]*Path, error) {
+	// Process functional options
+	o := &parseOptions{
+		deepnessThreshold: defaultDeepnessThreshold,
+	}
+	for _, opt := range opts {
+		opt.applyParse(o)
+	}
+
 	// Select root rule to begin with
 	rootRule := GetRule(rootRulename, grammar.Rulemap)
 	if rootRule == nil {
@@ -140,7 +154,7 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 	}
 
 	// Parse input with grammar's initial rule
-	possibilites := solveAlt(grammar, rootRule.Alternation, input, 0)
+	possibilites := solveAlt(grammar, rootRule.Alternation, input, 0, 0, o)
 
 	// Look for solutions that consumed the whole input
 	outPoss := []*Path{}
@@ -155,14 +169,14 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 	return outPoss, nil
 }
 
-func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Path {
+func solveAlt(grammar *Grammar, alt Alternation, input []byte, index, deepness int, opts *parseOptions) []*Path {
 	altPossibilities := []*Path{}
 
 	for _, concat := range alt.Concatenations {
 		cntPossibilities := []*Path{}
 
 		// Init with first repetition (guarantee of at least 1 repetition)
-		possibilities := solveRep(grammar, concat.Repetitions[0], input, index)
+		possibilities := solveRep(grammar, concat.Repetitions[0], input, index, deepness, opts)
 		for _, poss := range possibilities {
 			cntPossibilities = append(cntPossibilities, &Path{
 				Subpaths:  []*Path{poss},
@@ -179,7 +193,7 @@ func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Pat
 
 			tmpPossibilities := []*Path{}
 			for _, cntPoss := range cntPossibilities {
-				possibilities := solveRep(grammar, rep, input, cntPoss.End)
+				possibilities := solveRep(grammar, rep, input, cntPoss.End, deepness, opts)
 				for _, poss := range possibilities {
 					// If the possibility is the empty path, don't append the empty one
 					if poss.Start == poss.End {
@@ -211,14 +225,14 @@ func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Pat
 	return altPossibilities
 }
 
-func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path {
+func solveRep(grammar *Grammar, rep Repetition, input []byte, index, deepness int, opts *parseOptions) []*Path {
 	// Fast check won't be out of bounds with first read
 	if !solveKeepGoing(rep, input, index, 0) {
 		return []*Path{}
 	}
 
 	// Find first repetition paths.
-	paths := solveElem(grammar, rep.Element, input, index)
+	paths := solveElem(grammar, rep.Element, input, index, deepness, opts)
 	pindex := 0
 
 	y := 1
@@ -227,7 +241,7 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 	for kg {
 		iterPaths := []*Path{}
 		for _, poss := range paths[pindex:] {
-			elemPossibilities := solveElem(grammar, rep.Element, input, poss.End)
+			elemPossibilities := solveElem(grammar, rep.Element, input, poss.End, deepness, opts)
 			for _, elemPoss := range elemPossibilities {
 				ipsubs := make([]*Path, len(poss.Subpaths), len(poss.Subpaths)+1)
 				copy(ipsubs, poss.Subpaths)
@@ -278,13 +292,18 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 	return paths
 }
 
-func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path {
+func solveElem(grammar *Grammar, elem ElemItf, input []byte, index, deepness int, opts *parseOptions) []*Path {
 	paths := []*Path{}
+
+	// Check don't go too deep
+	if opts.deepnessThreshold != -1 && deepness > opts.deepnessThreshold {
+		return paths
+	}
 
 	switch v := elem.(type) {
 	case ElemRulename:
 		rule := GetRule(v.Name, grammar.Rulemap)
-		possibilities := solveAlt(grammar, rule.Alternation, input, index)
+		possibilities := solveAlt(grammar, rule.Alternation, input, index, deepness+1, opts)
 		for _, poss := range possibilities {
 			poss.MatchRule = v.Name
 			paths = append(paths, poss)
@@ -295,10 +314,10 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 			Min:     0,
 			Max:     1,
 			Element: ElemGroup(v),
-		}, input, index)
+		}, input, index, deepness+1, opts)
 
 	case ElemGroup:
-		paths = solveAlt(grammar, v.Alternation, input, index)
+		paths = solveAlt(grammar, v.Alternation, input, index, deepness+1, opts)
 
 	case ElemNumVal:
 		switch v.Status {
@@ -755,6 +774,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 // It currently support the following checks:
 // - for all rules, its dependencies (rules) exist
 // - for repetition, min <= max
+// - for num-val, that the value fits in 7-bits (US-ASCII encoded)
 // To update this list, please open an issue.
 func SemvalABNF(g *Grammar) error {
 	// Check all dependencies exist
@@ -788,6 +808,37 @@ func semvalAlternation(alt Alternation) error {
 				}
 			}
 			switch elem := rep.Element.(type) {
+			// num-val base
+			case ElemNumVal:
+				for _, val := range elem.Elems {
+					val = strings.TrimLeft(val, "0")
+					switch elem.Base {
+					case "B", "b":
+						if len(val) > 7 { // 7 = ceil(log(base, 2^|us-ascii|)), base=2
+							return &ErrTooLargeNumeral{
+								Base:  elem.Base,
+								Value: val,
+							}
+						}
+					case "D", "d":
+						// 3 = ceil(log(base, 2^|us-ascii|)), base=10
+						if len(val) > 3 || (len(val) == 3 && (val[0] > '1' || (val[0] == '1' && (val[1] > '2' || (val[1] == '2' && val[2] > '7'))))) {
+							return &ErrTooLargeNumeral{
+								Base:  elem.Base,
+								Value: val,
+							}
+						}
+					case "X", "x":
+						if len(val) > 2 || (len(val) == 2 && val[0] > '7') { // 2 = ceil(log(base, 2^|us-ascii|)), base=16
+							return &ErrTooLargeNumeral{
+								Base:  elem.Base,
+								Value: val,
+							}
+						}
+					}
+				}
+
+			// propagate recursion
 			case ElemGroup:
 				if err := semvalAlternation(elem.Alternation); err != nil {
 					return err

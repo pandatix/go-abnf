@@ -89,10 +89,6 @@ func Test_U_Generate(t *testing.T) {
 				}
 			}
 			assert.NotEmpty(out)
-
-			// Verify it is valid
-			// valid := tt.Grammar.IsValid(tt.Rulename, out)
-			// assert.Truef(valid, "generated output should be valid: %s", out)
 		})
 	}
 }
