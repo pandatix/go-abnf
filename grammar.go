@@ -226,55 +226,54 @@ func solveAlt(grammar *Grammar, alt Alternation, input []byte, index, deepness i
 }
 
 func solveRep(grammar *Grammar, rep Repetition, input []byte, index, deepness int, opts *parseOptions) []*Path {
-	// Fast check won't be out of bounds with first read
+	// Initiate repetition solve
 	if !solveKeepGoing(rep, input, index, 0) {
 		return []*Path{}
 	}
+	ppaths := [][]*Path{}
+	ppaths = append(ppaths, solveElem(grammar, rep.Element, input, index, deepness, opts))
 
-	// Find first repetition paths.
-	paths := solveElem(grammar, rep.Element, input, index, deepness, opts)
-	pindex := 0
-
-	y := 1
-	kg := solveKeepGoing(rep, input, index, y)
-
-	for kg {
-		iterPaths := []*Path{}
-		for _, poss := range paths[pindex:] {
-			elemPossibilities := solveElem(grammar, rep.Element, input, poss.End, deepness, opts)
+	// Other repetition solves
+	for i := 1; i != rep.Max; i++ {
+		ppaths = append(ppaths, []*Path{})
+		for _, prevPath := range ppaths[i-1] {
+			// For all possibilities, duplicate the subpaths to avoid pointer updates
+			if !solveKeepGoing(rep, input, prevPath.End, i) {
+				continue
+			}
+			elemPossibilities := solveElem(grammar, rep.Element, input, prevPath.End, deepness, opts)
 			for _, elemPoss := range elemPossibilities {
-				ipsubs := make([]*Path, len(poss.Subpaths), len(poss.Subpaths)+1)
-				copy(ipsubs, poss.Subpaths)
-				ipsubs = append(ipsubs, elemPoss)
+				subs := make([]*Path, len(prevPath.Subpaths), len(prevPath.Subpaths)+1)
+				copy(subs, prevPath.Subpaths)
+				subs = append(subs, elemPoss)
 
-				iterPaths = append(iterPaths, &Path{
-					Subpaths:  ipsubs,
+				ppaths[i] = append(ppaths[i], &Path{
+					Subpaths:  subs,
 					MatchRule: "",
-					Start:     poss.Start,
+					Start:     prevPath.Start,
 					End:       elemPoss.End,
 				})
 			}
 		}
 
-		// Prepare for next iteration
-		y++
-		kg = solveKeepGoing(rep, input, index, y)
-
-		// If no solutions now, there won't be any later.
-		if len(iterPaths) == 0 {
+		// If no new path found during this repetition, don't keep working
+		if len(ppaths[i]) == 0 {
 			break
-		}
-		// If there exist solutions in the given interval, keep them
-		// for future iterations.
-		if y >= rep.Min {
-			pindex += len(paths) - pindex
-			paths = append(paths, iterPaths...)
 		}
 	}
 
-	// Add empty solution if is a valid path
+	// Return only the appropriate results.
+	outpaths := []*Path{}
+	for i := 1; i <= len(ppaths); i++ {
+		// Don't add under minimum repetition
+		if i < rep.Min {
+			continue
+		}
+		outpaths = append(outpaths, ppaths[i-1]...)
+	}
+	// If the empty solution if possible, keep track of it
 	if rep.Min == 0 {
-		paths = append(paths, &Path{
+		outpaths = append(outpaths, &Path{
 			Subpaths: []*Path{
 				{
 					Subpaths:  nil,
@@ -289,7 +288,7 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index, deepness in
 		})
 	}
 
-	return paths
+	return outpaths
 }
 
 func solveElem(grammar *Grammar, elem ElemItf, input []byte, index, deepness int, opts *parseOptions) []*Path {
@@ -397,7 +396,7 @@ func strmin(r byte) byte {
 // totally consumed.
 // Else, it checks if input has been totally consumed AND if there
 // could be other repetitions.
-func solveKeepGoing(rep Repetition, input []byte, index, y int) bool {
+func solveKeepGoing(rep Repetition, input []byte, index, i int) bool {
 	// Find if could handle the length of this repetition
 	// considering its type
 	couldHandle := true
@@ -408,7 +407,7 @@ func solveKeepGoing(rep Repetition, input []byte, index, y int) bool {
 
 	case ElemCharVal:
 		// Check current index+length of char value string is not longer than the input
-		couldHandle = index+len(v.Values)-1 < len(input)
+		couldHandle = index+len(v.Values) <= len(input)
 
 	case ElemProseVal:
 		panic("elemProseVal")
@@ -421,7 +420,7 @@ func solveKeepGoing(rep Repetition, input []byte, index, y int) bool {
 	}
 	// If has a maximum repetition, check could handle AND will remain
 	// under boundary.
-	return couldHandle && y < rep.Max
+	return couldHandle && i < rep.Max
 }
 
 // LexABNF is the lexer for the ABNF structural model implemented.
