@@ -264,11 +264,7 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index, deepness in
 
 	// Return only the appropriate results.
 	outpaths := []*Path{}
-	for i := 1; i <= len(ppaths); i++ {
-		// Don't add under minimum repetition
-		if i < rep.Min {
-			continue
-		}
+	for i := max(1, rep.Min); i <= len(ppaths); i++ {
 		outpaths = append(outpaths, ppaths[i-1]...)
 	}
 	// If the empty solution if possible, keep track of it
@@ -754,19 +750,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		}, nil
 	}
 
-	if len(path.Subpaths) == 1 && path.MatchRule == "" {
-		return lexABNF(input, path.Subpaths[0])
-	}
-
-	from := path.Start - 10
-	if from < 0 {
-		from = 0
-	}
-	to := path.End + 10
-	if to > len(input) {
-		to = len(input)
-	}
-	panic(fmt.Sprintf("unhandlable path from %d to %d: \"%s\" ; sneek peak around \"%s\"", path.Start, path.End, input[path.Start:path.End], input[from:to]))
+	panic(fmt.Sprintf("unhandlable path from %d to %d: \"%s\" ; sneek peak around \"%s\"", path.Start, path.End, input[path.Start:path.End], input[max(path.Start-10, 0):min(path.End+10, 0)]))
 }
 
 // SemvalABNF proceed to semantic validations of an ABNF grammar.
