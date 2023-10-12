@@ -18,11 +18,12 @@ func FuzzGenerate(f *testing.F) {
 			if len(out) != 0 {
 				t.Fatal("output should be empty in case of an error")
 			}
-		} else {
-			valid := goabnf.ABNF.IsValid(rulename, out)
-			if !valid {
-				t.Fatalf("generated output is invalid, out: %s", out)
-			}
+			return
+		}
+
+		valid, err := goabnf.ABNF.IsValid(rulename, out)
+		if err != nil || !valid {
+			t.Fatalf("generated output is invalid, out: %s", out)
 		}
 	})
 }

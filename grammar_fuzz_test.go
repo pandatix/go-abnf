@@ -12,19 +12,19 @@ func FuzzParseABNF(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input []byte) {
-		path, err := goabnf.ParseABNF(input)
+		grammar, err := goabnf.ParseABNF(input)
 
 		if err != nil {
-			if path != nil {
+			if grammar != nil {
 				t.Fatal("Expected no path when error")
 			}
 			if err, ok := err.(*goabnf.ErrMultipleSolutionsFound); ok {
 				t.Fatalf("For input %s, got error %s", input, err)
 			}
-		} else {
-			if path == nil {
-				t.Fatal("Expected a path when no error")
-			}
+			return
+		}
+		if grammar == nil {
+			t.Fatal("Expected a grammar when no error")
 		}
 	})
 }

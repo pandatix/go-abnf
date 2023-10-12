@@ -15,14 +15,16 @@ type Grammar struct {
 // IsValid checks there exist at least a path that completly consumes
 // input, hence is valide given this gramma and especially one of its
 // rule.
-//
-// XXX panic if involves unvaoidable recursive rule.
-//   - checkCanGenerateSafely is not sufficient as parseAlt will recurse without limitation
-//     (checks there are none unavoidable path on its road, not that it won't fall/recurse into it)
-//   - deepness is not sufficient as recursing could be very difficult to predict
-func (g *Grammar) IsValid(rulename string, input []byte, opts ...ParseOption) bool {
+func (g *Grammar) IsValid(rulename string, input []byte, opts ...ParseOption) (bool, error) {
+	lt, err := g.IsLeftTerminating(rulename)
+	if err != nil {
+		return false, err
+	}
+	if !lt {
+		return false, fmt.Errorf("rule %s is not left terminating thus can't be validated without the risk of infinite recursion", rulename)
+	}
 	paths, err := Parse(input, g, rulename, opts...)
-	return len(paths) != 0 && err == nil
+	return len(paths) != 0 && err == nil, nil
 }
 
 // String returns the representation of the grammar that is valid

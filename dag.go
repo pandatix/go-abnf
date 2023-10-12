@@ -16,6 +16,12 @@ type Depgraph map[string]*node
 // It includes core rules only if necessary.
 func (g *Grammar) DependencyGraph() Depgraph {
 	graph := Depgraph{}
+	for _, corerule := range coreRules {
+		graph[corerule.Name] = &node{
+			Rulename:     corerule.Name,
+			Dependencies: getDependencies(corerule.Alternation),
+		}
+	}
 	for _, rule := range g.Rulemap {
 		graph[rule.Name] = &node{
 			Rulename:     rule.Name,
@@ -76,6 +82,139 @@ func (g *Grammar) IsDAG() bool {
 		}
 	}
 	return true
+}
+
+// RuleContainsCycle returns whether the rule contains a cycle or not.
+// It travels through the whole rule dependency graph, such that
+// it checks if the rule is cyclic AND if one of its dependency is too.
+//
+// WARNING: it is different than IsLeftTerminating, refer to its doc.
+func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
+	// Check the rule exists
+	rule := GetRule(rulename, g.Rulemap)
+	if rule == nil {
+		return false, &ErrRuleNotFound{
+			Rulename: rulename,
+		}
+	}
+
+	// Get all SCCs
+	scc := &cycle{
+		index: 0,
+		stack: []*node{},
+		dg:    g.DependencyGraph(),
+	}
+	scc.find()
+
+	return ruleContainsCycle(scc.sccs, rulename), nil
+}
+
+// IsLeftTerminating returns whether the rule is not left terminating.
+// It travels through the whole rule dependency graph, such that
+// it checks if the rule has a way to left terminate.
+//
+// Notice that it depends on the ordering your grammar, which could be
+// illustrated by the ABNF rule "element" that begins with the alternation
+// of a "rulename", which is terminating, and not by "option" or "group"
+// which are not.
+//
+// WARNING: it is different than RuleContainsCycle, refer to its doc.
+func (g *Grammar) IsLeftTerminating(rulename string) (bool, error) {
+	// Check the rule exists
+	rule := GetRule(rulename, g.Rulemap)
+	if rule == nil {
+		return false, &ErrRuleNotFound{
+			Rulename: rulename,
+		}
+	}
+
+	// Stack has the same signature as a rulemap in order to use getRuleIn for simplicity
+	stack := map[string]*Rule{
+		rulename: rule,
+	}
+	return isAltLeftTerminating(g, stack, rule.Alternation), nil
+}
+
+func isAltLeftTerminating(g *Grammar, stack map[string]*Rule, alt Alternation) bool {
+	for _, con := range alt.Concatenations {
+		for _, rep := range con.Repetitions {
+			_, subIsOption := rep.Element.(ElemOption)
+			if rep.Min == 0 || subIsOption {
+				if !isElemLeftTerminating(g, stack, rep.Element) {
+					return false
+				}
+				continue
+			}
+			if !isElemLeftTerminating(g, stack, rep.Element) {
+				return false
+			}
+			break
+		}
+	}
+	return true
+}
+
+func isElemLeftTerminating(g *Grammar, stack map[string]*Rule, elem ElemItf) bool {
+	switch v := elem.(type) {
+	case ElemRulename:
+		ruleInStack := (getRuleIn(v.Name, stack) != nil)
+		if ruleInStack {
+			return false
+		}
+		rule := GetRule(v.Name, g.Rulemap)
+		return isAltLeftTerminating(g, stack, rule.Alternation)
+	case ElemOption:
+		return isAltLeftTerminating(g, stack, v.Alternation)
+	case ElemGroup:
+		return isAltLeftTerminating(g, stack, v.Alternation)
+	case ElemCharVal:
+		return len(v.Values) != 0
+	case ElemProseVal:
+		return len(v.values) != 0
+	}
+	return true
+}
+
+func ruleContainsCycle(sccs [][]*node, rulename string) bool {
+	// Find rulename's SCC
+	scc := ([]*node)(nil)
+	rulenode := (*node)(nil)
+	for _, s := range sccs {
+		if scc != nil {
+			break
+		}
+		for _, ss := range s {
+			if ss.Rulename == rulename {
+				rulenode = ss
+				scc = s
+				break
+			}
+		}
+	}
+
+	// Check if cyclic
+	dependsOn := false
+	for _, dep := range rulenode.Dependencies {
+		if dep == rulename {
+			dependsOn = true
+			break
+		}
+	}
+	if dependsOn || len(scc) != 1 {
+		// If it depends on itself or is part of an SCC, then is cylic
+		return true
+	}
+
+	// Propagate to deps
+	for _, dep := range rulenode.Dependencies {
+		if dep == rulename {
+			continue
+		}
+		if ruleContainsCycle(sccs, dep) {
+			return true
+		}
+	}
+	return false
 }
 
 type cycle struct {

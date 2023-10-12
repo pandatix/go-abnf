@@ -142,7 +142,7 @@ func (opt thresholdOption) apply(opts *genOpts) {
 // checkCanGenerateSafely returns no error if the rule can be generated
 // safely i.e. if the rule can exist without infinite recursion.
 // Factually, it checks if all involved rules have no path v such that it
-// produces a cycle (v:rule-*->rulen) AND that this path is mandatory
+// produces a cycle (v:rule-*->rule) AND that this path is mandatory
 // (no option, no repetition with a minimum of zero).
 func checkCanGenerateSafely(g *Grammar, rulename string) error {
 	rule := GetRule(rulename, g.Rulemap)
