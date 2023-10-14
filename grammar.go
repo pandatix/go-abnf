@@ -644,7 +644,10 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			if spi == nil {
 				// If not found, should be exact repetition match
 				dstr := string(input[repeat.Start:repeat.End])
-				d, _ := strconv.Atoi(dstr)
+				d, err := strconv.Atoi(dstr)
+				if err != nil {
+					return nil, err
+				}
 				min, max = d, d
 			} else {
 				// Set min
@@ -652,14 +655,22 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				if dstr == "" {
 					min = 0
 				} else {
-					min, _ = strconv.Atoi(dstr)
+					d, err := strconv.Atoi(dstr)
+					if err != nil {
+						return nil, err
+					}
+					min = d
 				}
 				// Set max
 				dstr = string(input[*spi+1 : repeat.End])
 				if dstr == "" {
 					max = inf
 				} else {
-					max, _ = strconv.Atoi(dstr)
+					d, err := strconv.Atoi(dstr)
+					if err != nil {
+						return nil, err
+					}
+					max = d
 				}
 			}
 		}
