@@ -1,6 +1,9 @@
 package goabnf
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 type node struct {
 	Rulename       string
@@ -64,6 +67,18 @@ func appendDeps(deps []string, ndeps ...string) []string {
 		}
 	}
 	return deps
+}
+
+// Mermaid returns a flowchart of the dependency graph.
+func (dg Depgraph) Mermaid() string {
+	out := "flowchart TD\n"
+	for _, node := range dg {
+		for _, dep := range node.Dependencies {
+			out += fmt.Sprintf("\t%s --> %s\n", node.Rulename, dep)
+		}
+		out += "\n"
+	}
+	return out
 }
 
 // IsDag find Strongly Connected Components using Tarjan's algorithm
@@ -247,7 +262,8 @@ func (c *cycle) strongconnect(v *node) {
 	for _, dep := range v.Dependencies {
 		w, ok := c.dg[dep]
 		if !ok {
-			// core rules
+			// core rules, as we know they won't have a cycle thus
+			// no SCC, we don't need to recurse.
 			continue
 		}
 		if w.index == 0 {

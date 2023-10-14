@@ -157,10 +157,8 @@ func Test_U_ParseABNF(t *testing.T) {
 			assert.NotEmpty(tt.Input)
 			_, err := goabnf.ParseABNF(tt.Input, goabnf.WithValidation(tt.Validate))
 
-			if tt.ExpectErr {
-				assert.NotNil(err)
-			} else {
-				assert.Nil(err)
+			if (err != nil) != tt.ExpectErr {
+				t.Fatalf("Expected err: %t ; got: %s", tt.ExpectErr, err)
 			}
 		})
 	}

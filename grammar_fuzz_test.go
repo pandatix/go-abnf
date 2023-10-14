@@ -43,10 +43,10 @@ func FuzzParseABNF_Generate(f *testing.F) {
 				t.Fatalf("For input %s, got error %s", input, err)
 			}
 			return
-		} else {
-			if g == nil {
-				t.Fatal("Expected a path when no error")
-			}
+		}
+		if g == nil {
+			t.Fatal("Expected a grammar when no error")
+			return
 		}
 	})
 }

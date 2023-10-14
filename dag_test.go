@@ -44,6 +44,14 @@ func Test_U_IsDAG(t *testing.T) {
 			if !assert.Nil(err) {
 				t.FailNow()
 			}
+			// Side checks that this dependency graph does not produce an
+			// empty dependency graph. It should not be, at any time,
+			// as only the diagram header is a non-empty content.
+			mrmd := g.DependencyGraph().Mermaid()
+			assert.NotEmpty(mrmd)
+			// Do the same with the pretty print.
+			ptp := g.PrettyPrint()
+			assert.NotEmpty(ptp)
 
 			isDag := g.IsDAG()
 			assert.Equal(tt.ExpectedIsDag, isDag)
