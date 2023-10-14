@@ -25,6 +25,7 @@ func main() {
 		Commands: []*cli.Command{
 			commands.Validate,
 			commands.Generate,
+			commands.Regex,
 		},
 		Flags: []cli.Flag{
 			cli.VersionFlag,
@@ -56,7 +57,6 @@ func main() {
 	go func() {
 		select {
 		case <-sigs:
-			log.Println("Keyboard interrupt detected.")
 			cancel()
 			os.Exit(1)
 		case <-ctx.Done():
@@ -64,8 +64,7 @@ func main() {
 		}
 	}()
 
-	err := app.RunContext(ctx, os.Args)
-	if err != nil {
+	if err := app.RunContext(ctx, os.Args); err != nil {
 		log.Fatal(err)
 	}
 }

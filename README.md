@@ -16,10 +16,10 @@ Go module to handle Augmented Backus-Naur Form (ABNF), providing a large API.
 It implements RFC 5234 and 7405, with Errata 2968 and 3076.
 
 Capabilities:
- - [ ] parse ABNF (to manipulable datastructure ; with cycle detection)
- - [ ] compile ABNF to regex
+ - [X] parse ABNF (to manipulable datastructure ; with cycle detection)
+ - [X] compile ABNF to regex
  - [ ] create a minimal set of tests that covers the full grammar
- - [ ] generate a visual representation of the ABNF grammar provided
- - [ ] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
+ - [X] generate a visual representation of the ABNF grammar provided (mermaid)
+ - [X] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
 
 ## How it works
