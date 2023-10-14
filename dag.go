@@ -1,5 +1,7 @@
 package goabnf
 
+import "strings"
+
 type node struct {
 	Rulename       string
 	index, lowlink int
@@ -184,7 +186,7 @@ func ruleContainsCycle(sccs [][]*node, rulename string) bool {
 			break
 		}
 		for _, ss := range s {
-			if ss.Rulename == rulename {
+			if strings.EqualFold(ss.Rulename, rulename) {
 				rulenode = ss
 				scc = s
 				break
@@ -195,7 +197,7 @@ func ruleContainsCycle(sccs [][]*node, rulename string) bool {
 	// Check if cyclic
 	dependsOn := false
 	for _, dep := range rulenode.Dependencies {
-		if dep == rulename {
+		if strings.EqualFold(dep, rulename) {
 			dependsOn = true
 			break
 		}
@@ -207,7 +209,7 @@ func ruleContainsCycle(sccs [][]*node, rulename string) bool {
 
 	// Propagate to deps
 	for _, dep := range rulenode.Dependencies {
-		if dep == rulename {
+		if strings.EqualFold(dep, rulename) {
 			continue
 		}
 		if ruleContainsCycle(sccs, dep) {

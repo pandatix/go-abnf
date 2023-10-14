@@ -41,6 +41,9 @@ var fixedAbnfAbnf []byte
 //go:embed testdata/fixed-abnf-raw.abnf
 var fixedAbnfRawAbnf []byte
 
+//go:embed testdata/fuzz_regex_eaa469604868c87f.abnf
+var fuzzRegex_eaa469604868c87fAbnf []byte
+
 var testsParseAbnf = map[string]struct {
 	Input     []byte
 	Validate  bool
@@ -133,6 +136,12 @@ var testsParseAbnf = map[string]struct {
 	"Fuzz_395eb15ada9c6900": {
 		// This fuzz crasher enabled detecting missing prose-val lexing support.
 		Input:     []byte("A=<>\r\n"),
+		Validate:  false,
+		ExpectErr: false,
+	},
+	"Fuzz_eaa469604868c87f": {
+		// This fuzz crasher enabled detecting a mis-undhandling of the defined-as character.
+		Input:     fuzzRegex_eaa469604868c87fAbnf,
 		Validate:  false,
 		ExpectErr: false,
 	},

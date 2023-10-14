@@ -447,7 +447,20 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				rl := rltmp.(Rule)
 
 				// Determine the "defined-as" characters -> new rule ("=") or alternation ("=/")
-				definedAs := strings.TrimSpace(string(input[sub.Subpaths[1].Start:sub.Subpaths[1].End]))
+				defAs := sub.Subpaths[1]
+				switch len(defAs.Subpaths) {
+				case 1:
+					defAs = defAs.Subpaths[0]
+				case 2:
+					if defAs.Subpaths[0].Subpaths[0].Subpaths == nil {
+						defAs = defAs.Subpaths[0]
+					} else {
+						defAs = defAs.Subpaths[1]
+					}
+				default: // case 3
+					defAs = defAs.Subpaths[1]
+				}
+				definedAs := strings.TrimSpace(string(input[defAs.Start:defAs.End]))
 				switch definedAs {
 				case "=":
 					if rule := GetRule(rl.Name, mp); rule != nil {
@@ -473,6 +486,8 @@ func lexABNF(input []byte, path *Path) (any, error) {
 					}
 					rule.Alternation.Concatenations = append(rule.Alternation.Concatenations, rl.Alternation.Concatenations...)
 					mp[rule.Name] = rule
+				default:
+					panic("can't lex defined-as rule for \"" + definedAs + "\"")
 				}
 			}
 
