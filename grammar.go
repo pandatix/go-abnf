@@ -338,7 +338,7 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 		}
 
 	case ElemProseVal:
-		panic("elemProseVal")
+		// Prose-val does not produce any path, is a prose description
 
 	case ElemCharVal:
 		initialIndex := index
@@ -395,7 +395,8 @@ func solveKeepGoing(rep Repetition, input []byte, index, i int) bool {
 		couldHandle = index+len(v.Values) <= len(input)
 
 	case ElemProseVal:
-		panic("elemProseVal")
+		// Don't need to go further as it can't be parsed
+		couldHandle = false
 	}
 
 	// If no maximum repetition, only bound to input length thus
@@ -473,8 +474,6 @@ func lexABNF(input []byte, path *Path) (any, error) {
 					}
 					rule.Alternation.Concatenations = append(rule.Alternation.Concatenations, rl.Alternation.Concatenations...)
 					mp[rule.Name] = rule
-				default:
-					panic("can't lex defined-as rule for \"" + definedAs + "\"")
 				}
 			}
 

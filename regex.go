@@ -100,8 +100,7 @@ func (e ElemOption) regex(g *Grammar) (string, error) {
 }
 
 func (e ElemProseVal) regex(g *Grammar) (string, error) {
-	// TODO find how to implement it
-	panic("elemProseVal")
+	return "", ErrHandlingProseVal
 }
 
 func (e ElemNumVal) regex(g *Grammar) (string, error) {

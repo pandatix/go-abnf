@@ -78,9 +78,6 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 					}
 				}
 
-			case ElemProseVal:
-				panic("unable to generate prose val")
-
 			case ElemCharVal:
 				for _, val := range elem.Values {
 					if elem.Sensitive && (int(rand.Int63())%2) == 0 {
@@ -89,6 +86,8 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 					appendPtr(out, val)
 				}
 			}
+
+			// Prose-val is not covered, checked before to avoid generation
 		}
 	}
 }
@@ -140,7 +139,8 @@ func (opt thresholdOption) apply(opts *genOpts) {
 }
 
 // checkCanGenerateSafely returns no error if the rule can be generated
-// safely i.e. if the rule can exist without infinite recursion.
+// safely i.e. if the rule can exist without infinite recursion, AND if it
+// does not contain a prose-val as it could not generate from it.
 // Factually, it checks if all involved rules have no path v such that it
 // produces a cycle (v:rule-*->rule) AND that this path is mandatory
 // (no option, no repetition with a minimum of zero).
@@ -220,9 +220,12 @@ func checkCanGenerateSafelyConcat(g *Grammar, knownRules map[string]struct{}, co
 				return err
 			}
 
+		case ElemProseVal:
+			return ErrHandlingProseVal
+
 			// Other types are not considered for the following reasons:
 			// - option: equivalent to rep.min==0, escapable path even if could be cyclic
-			// - num-val, char-val, prose-val: termination paths, can't be cyclic
+			// - num-val, char-val: termination paths, can't be cyclic
 		}
 	}
 	return nil

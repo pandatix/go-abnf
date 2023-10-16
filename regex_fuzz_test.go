@@ -23,6 +23,9 @@ func FuzzRegex(f *testing.F) {
 			if _, ok := err.(*goabnf.ErrRuleNotFound); ok {
 				return
 			}
+			if err == goabnf.ErrHandlingProseVal {
+				return
+			}
 			t.Fatalf("was not expecting the regex build to come up with an error, got: %s", err)
 			return
 		}

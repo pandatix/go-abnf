@@ -9,8 +9,14 @@ var (
 	// ErrNoSolutionFound is an error returned when parsing an ABNF
 	// grammar and no solution has been found.
 	ErrNoSolutionFound = errors.New("no solution found, input ABNF grammar may be invalid")
+
+	// ErrHandlingProseVal is an error returned when an operation tried
+	// to produce something on a prose-val, but it can't be handled properly.
+	ErrHandlingProseVal = errors.New("can't handle prose-val descriptions")
 )
 
+// ErrMultipleSolutionsFound is an error returned when a parser found
+// multiple paths/solutions when none or one were expected.
 type ErrMultipleSolutionsFound struct {
 	Paths []*Path
 }
@@ -69,6 +75,8 @@ func (err ErrSemanticRepetition) Error() string {
 	return fmt.Sprintf("invalid semantic of input ABNF grammar for repetition %s", err.Repetition)
 }
 
+// ErrTooLargeNumeral is an error returned when the numeral value
+// provided to parse cannot be handled as a 7-bit US-ASCII valid value.
 type ErrTooLargeNumeral struct {
 	Base, Value string
 }

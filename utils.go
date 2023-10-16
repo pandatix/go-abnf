@@ -12,6 +12,8 @@ func atob(str, base string) byte {
 	case "X", "x":
 		return hextob(str)
 	}
+	// This won't get hit as the ABNF grammar defines only the
+	// previous bases.
 	panic("invalid base")
 }
 

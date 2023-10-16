@@ -23,10 +23,7 @@ func findSeed(ctx *cli.Context) int64 {
 	}
 
 	b := make([]byte, 1)
-	_, err := rand.Read(b)
-	if err != nil {
-		panic(err)
-	}
+	rand.Read(b)
 
 	return int64(b[0])
 }
