@@ -5,26 +5,13 @@ on: [push, pull_request]
 permissions:
   contents: read
 
-jobs:
-  setup:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Cancel previous
-        uses: styfle/cancel-workflow-action@0.12.1
-        with:
-          access_token: ${{ github.token }}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+jobs:
   unit-tests:
-    strategy:
-      matrix:
-        go-version: [1.x, 1.22.x]
-        platform: [ubuntu-latest]
-        include:
-          - go-version: 1.x
-            platform: ubuntu-latest
-            update-coverage: true
-    runs-on: ${{ matrix.platform }}
-    needs: [setup]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,7 +19,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version-file: go.mod
 
       - name: Cache go modules
         uses: actions/cache@v4
@@ -42,22 +29,21 @@ jobs:
           restore-keys: ${{ runner.os }}-go-
 
       - name: Run go test
-        run: go test -v -race -coverprofile coverage.txt ./...
-      
+        run: go test -v -race -coverprofile cov.out ./...
+
       - name: Upload coverage to Coveralls
         if: ${{ matrix.update-coverage }}
         uses: shogo82148/actions-goveralls@v1
         with:
-          path-to-profile: coverage.txt
+          path-to-profile: cov.out
 
   go-lint:
     runs-on: ubuntu-latest
-    needs: [setup]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: 1.22.x
-      
+          go-version-file: go.mod
+
       - name: go-lint
         uses: golangci/golangci-lint-action@v4
