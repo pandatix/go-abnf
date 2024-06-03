@@ -23,3 +23,69 @@ Capabilities:
  - [X] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
 
 ## How it works
+
+Under the good, `go-abnf` is a brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be lexed in order to produce a new grammar.
+
+As this implementation is not adhesive to the ABNF grammar of the ABNF grammar as defined in RFC 5234, updated by RFC 7405 and fixed by Erratum 2968 and 3076, it enables genericity.
+This imply that for any valid grammar in ABNF that is properly lexed, if you can write a lexer for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual decomposition of the ABNF grammar, reviewed multiple times.
+
+<div align="center">
+	<img src="res/grammar.excalidraw.png" width="800px">
+</div>
+
+Examples can be found in [the examples directory](examples/)
+
+## Fuzzing
+
+As go-abnf revolves around grammars, you can use a random walk to traverse its graph and efficiently generate valid inputs according to a given grammar.
+
+This is particularly powerfull when you want to fuzz Go implementations that require a very specific input format that the Go's fuzzing engine can't produce.
+
+You can use go-abnf to efficiently produce test cases, as follows.
+
+```go
+package example
+
+import (
+	_ "embed"
+	"testing"
+
+	goabnf "github.com/pandatix/go-abnf"
+)
+
+//go:embed my-grammar.abnf
+var myGrammar []byte
+
+func FuzzFunction(f *testing.F) {
+	g, err := goabnf.ParseABNF(myGrammar)
+	if err != nil {
+		f.Fatal(err)
+	}
+
+	f.Fuzz(func(t *testing.T, seed int64) {
+		// Generate a random test case based on the seed
+		b, _ := g.Generate(seed, "a",
+			goabnf.WithRepMax(15),      // Limit repetitions to 15
+			goabnf.WithThreshold(1024), // Stop ASAP input generation if reached 1024 bytes
+		)
+
+		Function(b)
+	})
+}
+```
+
+---
+
+## Troubleshooting
+
+### My ABNF grammar does not work
+
+**Q**: My ABNF grammar does not work. Do you have any idea why ?
+
+**R**: There could be many reasons to this. First make sure your grammar ends up by a newline (LF), and especially that the input content has a CR LF. As those appear the same, it is often a source of error.
+
+### Difference between pap and bap
+
+**Q**: Is there a difference between pap and [bap](https://github.com/ietf-tools/bap) ?
+
+**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, no, pap and bap are very similar as they are ABNF parsers/validators.
