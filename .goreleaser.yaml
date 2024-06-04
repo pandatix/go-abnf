@@ -2,8 +2,20 @@ before:
   hooks:
     - go mod tidy
 
+gomod:
+  proxy: true
+
 builds:
-  - skip: true
+  - main: ./cmd/pap
+    binary: pap
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - '-s -w -X main.version={{.Version}}'
+    goos:
+      - linux
+    goarch:
+      - amd64
 
 changelog:
   sort: asc

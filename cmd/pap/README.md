@@ -9,7 +9,16 @@ PandatiX's ABNF Parser is a CLI tool that provides a large API around ABNF.
 
 ## Installation
 
-You can simply install it using `go install github.com/pandatix/go-abnf/cmd/pap@latest`.
+You can download it for the [release page](https://github.com/pandatix/go-abnf/releases).
+
+Else, you can build it manually using the following instructions.
+
+```bash
+git clone git@github.com:pandatix/go-abnf.git
+cd go-abnf/cmd/pap
+go build -o pap main.go
+mv pap $(go env GOPATH)/bin/
+```
 
 ## Commands
 
