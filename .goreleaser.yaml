@@ -6,16 +6,20 @@ gomod:
   proxy: true
 
 builds:
-  - main: ./cmd/pap
+  - id: pap
+    main: ./cmd/pap
     binary: pap
     env:
       - CGO_ENABLED=0
-    ldflags:
-      - '-s -w -X main.version={{.Version}}'
     goos:
       - linux
     goarch:
       - amd64
+
+archives:
+  - id: pap
+    builds:
+      - pap
 
 changelog:
   sort: asc
