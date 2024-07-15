@@ -156,7 +156,7 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 		if poss.End == len(input) {
 			pth := poss.Subpaths[0]
 			pth.MatchRule = rootRulename
-			outPoss = append(outPoss, pth)
+			outPoss = append(outPoss, poss)
 		}
 	}
 
@@ -764,6 +764,9 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		}, nil
 	}
 
+	if len(path.Subpaths) == 1 {
+		return lexABNF(input, path.Subpaths[0])
+	}
 	panic(fmt.Sprintf("unhandlable path from %d to %d: \"%s\" ; sneek peak around \"%s\"", path.Start, path.End, input[path.Start:path.End], input[max(path.Start-10, 0):min(path.End+10, 0)]))
 }
 

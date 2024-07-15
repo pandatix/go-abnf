@@ -41,6 +41,9 @@ var fixedAbnfAbnf []byte
 //go:embed testdata/fixed-abnf-raw.abnf
 var fixedAbnfRawAbnf []byte
 
+//go:embed testdata/aftn.abnf
+var aftnAbnf []byte
+
 //go:embed testdata/fuzz_regex_eaa469604868c87f.abnf
 var fuzzRegex_eaa469604868c87fAbnf []byte
 
@@ -106,6 +109,11 @@ var testsParseAbnf = map[string]struct {
 	},
 	"fixed-abnf-raw": {
 		Input:     fixedAbnfRawAbnf,
+		Validate:  false,
+		ExpectErr: false,
+	},
+	"aftn": {
+		Input:     aftnAbnf,
 		Validate:  false,
 		ExpectErr: false,
 	},

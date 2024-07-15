@@ -1,0 +1,6 @@
+header = heading address originator
+heading = ("0" / "1") 3ALPHAUPPER 4DIGIT SP 1*10DIGIT
+address = CRLF ("AA" / "BB" / "CC") SP 8ALPHAUPPER CRLF
+originator = 6DIGIT SP 8ALPHAUPPER CRLF ("0" / "2")
+
+ALPHAUPPER = %x41-5a
