@@ -154,8 +154,7 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 	outPoss := []*Path{}
 	for _, poss := range possibilites {
 		if poss.End == len(input) {
-			pth := poss.Subpaths[0]
-			pth.MatchRule = rootRulename
+			poss.MatchRule = rootRulename
 			outPoss = append(outPoss, poss)
 		}
 	}
@@ -423,6 +422,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfRulelist.Name:
 		mp := map[string]*Rule{}
 
+		path := path.Subpaths[0]
 		sub := path.Subpaths[0]
 		for i := 0; i < len(path.Subpaths); i++ {
 			// Only work on rules (i.e. skip empty lines)

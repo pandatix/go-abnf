@@ -202,3 +202,30 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	assert.NotNil(sol)
 	assert.Nil(err)
 }
+
+func Test_U_ParseRootNonGroup(t *testing.T) {
+	// Issue #32 use case is a root rule that does not start
+	// with a group as its first root alternation element.
+	assert := assert.New(t)
+
+	// First we build our grammar
+	g, err := goabnf.ParseABNF(platypusAbnf)
+	if !assert.Nil(err) {
+		return
+	}
+
+	// Then we consider an input, valid according to our grammar.
+	input := []byte("a")
+	p, err := goabnf.Parse(input, g, "b")
+	if !assert.Nil(err) {
+		return
+	}
+
+	// Then we make sure there is only 1 possibility, and all
+	// subpaths have the proper name.
+	if !assert.Len(p, 1) {
+		return
+	}
+	assert.Equal("b", p[0].MatchRule)
+	assert.Equal("a", p[0].Subpaths[0].MatchRule)
+}
