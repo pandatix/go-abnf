@@ -208,6 +208,11 @@ func ruleContainsCycle(sccs [][]*node, rulename string) bool {
 			}
 		}
 	}
+	if rulenode == nil {
+		// If the node corresponding to the rulename does not exist,
+		// consider there is no cycle.
+		return false
+	}
 
 	// Check if cyclic
 	dependsOn := false

@@ -13,6 +13,9 @@ import (
 // It contains the list of entrypoints and endpoints.
 // You could travel through the graph starting from the entrypoints.
 type TransitionGraph struct {
+	grammar *Grammar
+	options *tgoptions
+
 	Entrypoints []*Node
 	Endpoints   []*Node
 }
@@ -80,6 +83,8 @@ func (g *Grammar) TransitionGraph(rulename string, opts ...TGOption) (*Transitio
 		return nil, err
 	}
 	return &TransitionGraph{
+		grammar:     g,
+		options:     options,
 		Entrypoints: entrypoints,
 		Endpoints:   endpoints,
 	}, nil
@@ -173,6 +178,204 @@ func (opt repetitionThreshold) apply(opts *tgoptions) {
 // Defaults to 256.
 func WithRepetitionThreshold(threshold int) TGOption {
 	return repetitionThreshold(threshold)
+}
+
+func (tg *TransitionGraph) Reader() *TransitionGraphReader {
+	return &TransitionGraphReader{
+		tg:     tg,
+		thread: []threadTuple{},
+	}
+}
+
+type TransitionGraphReader struct {
+	tg     *TransitionGraph
+	thread []threadTuple
+}
+
+type threadTuple struct {
+	id  string
+	pos int
+}
+
+func (tgr *TransitionGraphReader) Next() bool {
+	// Select root entrypoints to start from
+	idx := 0
+	if len(tgr.thread) != 0 {
+		// If already defined, go on with it
+		idx = tgr.thread[0].pos
+	}
+	if idx == len(tgr.tg.Entrypoints) {
+		return false
+	}
+
+	// rollover iif rules are deflated if necessary
+	node := tgr.tg.Entrypoints[idx]
+	return tgr.tg.options.deflateRules || canRollover(node, map[string]struct{}{})
+}
+
+func (tgr *TransitionGraphReader) Scan() []byte {
+	// Select root entrypoints to start from
+	idx := 0
+	if len(tgr.thread) != 0 {
+		// If already defined, go on with it
+		idx = tgr.thread[0].pos
+	} else {
+		// If the thread has not been started yet, create it
+		tgr.thread = []threadTuple{
+			{
+				id:  "", // will be done later
+				pos: 0,
+			},
+		}
+	}
+
+	// Don't read out of bounds i.e. don't produce once traveled
+	// through all the transition graph
+	if idx == len(tgr.tg.Entrypoints) {
+		return nil
+	}
+
+	// Select proper entrypoint
+	n := tgr.tg.Entrypoints[idx]
+
+	// If is the empty node, prepare to go to next entrypoint and
+	// return an empty slice
+	if n == emptyNode {
+		tgr.thread[0].pos++
+		return []byte{}
+	}
+
+	// Else it is a non-empty node, so recurse through the thread
+	b, roll := tgr.rollover(n, 1)
+	if roll {
+		tgr.thread[0].pos++
+	}
+	return b
+}
+
+func (tgr *TransitionGraphReader) rollover(node *Node, threadIndex int) (prod []byte, roll bool) {
+	// rollover iif rules are deflated if necessary
+	if !tgr.tg.options.deflateRules && !canRollover(node, map[string]struct{}{}) {
+		return nil, false
+	}
+
+	// Produce this node content
+	switch v := node.Elem.(type) {
+	case ElemCharVal:
+		prod = make([]byte, len(v.Values))
+		copy(prod, v.Values)
+	case ElemNumVal:
+		// TODO implement
+	default:
+		panic(fmt.Sprintf("should not happen, got type %v", v))
+	}
+
+	isInThread := len(tgr.thread) > threadIndex
+	isLast := len(node.Nexts) == 0
+	isEndpoint := slices.Contains(tgr.tg.Endpoints, node)
+
+	// If the node is the last in the chain (must be an endpoint), produce and roll to the next
+	if isLast {
+		return prod, true
+	}
+
+	// Else if the node is not the last in the chain but is an endpoint,
+	// - add this node to the thread
+	// - roll=false
+	// - return prod, roll
+	if isEndpoint && !isInThread { // endpoint AND not processed yet
+		tgr.thread = append(tgr.thread, threadTuple{
+			id:  node.ID,
+			pos: 0,
+		})
+
+		for _, next := range node.Nexts {
+			if transitionInStack(tgr.thread, node.ID, next.ID) {
+				roll = true
+				break
+			}
+		}
+		return prod, roll
+	}
+
+	// Then the node is not the last in the chain and not an endpoint:
+	nid := 0
+	if isInThread {
+		nid = tgr.thread[threadIndex].pos
+	}
+
+	if !isInThread {
+		tgr.thread = append(tgr.thread, threadTuple{
+			id:  node.ID,
+			pos: 0,
+		})
+	}
+
+	nn := node.Nexts[nid]
+	for {
+		if !isInThread && transitionInStack(tgr.thread, node.ID, nn.ID) {
+			nid++
+			tgr.thread[threadIndex].pos = nid
+			nn = node.Nexts[nid]
+			continue
+		}
+		break
+	}
+
+	sub, roll := tgr.rollover(nn, threadIndex+1)
+	if roll {
+		// If there are no nexts, propagate the roll_next order
+		if nid+1 == len(node.Nexts) {
+			return append(prod, sub...), true
+		}
+
+		// Then if there is a non-processed (in stack) edge, roll on it, else propagate roll next
+		var nextNotInThread *int
+		for i := nid + 1; i < len(node.Nexts); i++ {
+			if !transitionInStack(tgr.thread[:threadIndex+1], node.ID, node.Nexts[i].ID) {
+				nextNotInThread = &i
+				break
+			}
+		}
+		if nextNotInThread != nil {
+			tgr.thread = tgr.thread[:threadIndex+1]
+			tgr.thread[threadIndex].pos = *nextNotInThread
+
+			return append(prod, sub...), false
+		}
+		return append(prod, sub...), true
+	}
+	return append(prod, sub...), roll
+}
+
+func transitionInStack(stack []threadTuple, from, to string) bool {
+	for i := 0; i < len(stack); i++ {
+		e := stack[i]
+		if e.id == from && i+1 != len(stack) && stack[i+1].id == to {
+			return true
+		}
+	}
+	return false
+}
+
+func canRollover(node *Node, done map[string]struct{}) bool {
+	if node == emptyNode {
+		done["empty"] = struct{}{}
+		return true
+	}
+	done[node.ID] = struct{}{}
+	if _, ok := node.Elem.(ElemRulename); ok {
+		return false
+	}
+	for _, next := range node.Nexts {
+		if _, ok := done[next.ID]; ok {
+			continue
+		}
+		if !canRollover(next, done) {
+			return false
+		}
+	}
+	return true
 }
 
 type tgmachine struct {
@@ -329,7 +532,7 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 			if rep.Min > m.options.repetitionThreshold {
 				return nil, nil, errors.New("repetition threshold reached")
 			}
-			tgs, chi, cho := chainTransitionGraph(elemi, elemo, rep.Min+1)
+			tgs, chi, cho := chainTransitionGraph(elemi, elemo, rep.Min)
 			entrypoints = appendNodes(entrypoints, chi...)
 			endpoints = appendNodes(endpoints, cho...)
 

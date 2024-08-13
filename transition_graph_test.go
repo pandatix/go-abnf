@@ -269,3 +269,91 @@ func Test_U_AltGraphIO(t *testing.T) {
 		})
 	}
 }
+
+func Test_U_TransitionGraphExhaustiveCombinations(t *testing.T) {
+	t.Parallel()
+
+	var tests = map[string]struct {
+		Input                string
+		ExpectedCombinations [][]byte
+	}{
+		"single": {
+			Input: "a = \"a\"",
+			ExpectedCombinations: [][]byte{
+				[]byte("a"),
+			},
+		},
+		"optional": {
+			Input: "a = [\"a\"]",
+			ExpectedCombinations: [][]byte{
+				[]byte("a"),
+				[]byte(""),
+			},
+		},
+		"single-alternative": {
+			Input: "a = \"a\" / \"b\"",
+			ExpectedCombinations: [][]byte{
+				[]byte("a"),
+				[]byte("b"),
+			},
+		},
+		"concatenation": {
+			Input: "a = \"a\" \"b\"",
+			ExpectedCombinations: [][]byte{
+				[]byte("ab"),
+			},
+		},
+		"0-n": {
+			Input: "a = 0*3\"a\"",
+			ExpectedCombinations: [][]byte{
+				[]byte(""),
+				[]byte("a"),
+				[]byte("aa"),
+				[]byte("aaa"),
+			},
+		},
+		"1-inf": {
+			Input: "a = 1*\"a\"",
+			ExpectedCombinations: [][]byte{
+				[]byte("a"),
+				[]byte("aa"),
+			},
+		},
+		"embeded-loop": {
+			Input: "a = \"a\" 1*\"b\" \"c\"",
+			ExpectedCombinations: [][]byte{
+				[]byte("abc"),
+				[]byte("abbc"),
+			},
+		},
+		"embed": {
+			// No semantic validation AND rules not defined (nor deflated) -> no combinations
+			Input:                `a = [b [c / ";"]]`,
+			ExpectedCombinations: [][]byte{},
+		},
+	}
+
+	for testname, tt := range tests {
+		t.Run(testname, func(t *testing.T) {
+			assert := assert.New(t)
+
+			g, err := ParseABNF([]byte(tt.Input+"\r\n"), WithValidation(false))
+			if !assert.Nil(err) {
+				return
+			}
+
+			tg, err := g.TransitionGraph("a")
+			if !assert.Nil(err) {
+				return
+			}
+
+			r := tg.Reader()
+			elems := [][]byte{}
+			for r.Next() {
+				elems = append(elems, r.Scan())
+			}
+
+			assert.ElementsMatch(tt.ExpectedCombinations, elems)
+		})
+	}
+}
