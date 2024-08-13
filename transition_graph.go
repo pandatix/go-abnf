@@ -13,6 +13,9 @@ import (
 // It contains the list of entrypoints and endpoints.
 // You could travel through the graph starting from the entrypoints.
 type TransitionGraph struct {
+	grammar *Grammar
+	options *tgoptions
+
 	Entrypoints []*Node
 	Endpoints   []*Node
 }
@@ -29,7 +32,7 @@ type Node struct {
 
 // TransitionGraph builds a transition graph out of a grammar
 // and the given rulename.
-// TODO it is possible to build transition graph out of cylic rules iif	it is not concatenated to another repetition (can't pipe O->I as there is no O). For instance, `a = "a" a` can exist.
+// TODO it is possible to build transition graph out of cylic rules iff	it is not concatenated to another repetition (can't pipe O->I as there is no O). For instance, `a = "a" a` can exist.
 func (g *Grammar) TransitionGraph(rulename string, opts ...TGOption) (*TransitionGraph, error) {
 	// Build transition graph machine
 	options := &tgoptions{
@@ -80,6 +83,8 @@ func (g *Grammar) TransitionGraph(rulename string, opts ...TGOption) (*Transitio
 		return nil, err
 	}
 	return &TransitionGraph{
+		grammar:     g,
+		options:     options,
 		Entrypoints: entrypoints,
 		Endpoints:   endpoints,
 	}, nil
@@ -173,6 +178,310 @@ func (opt repetitionThreshold) apply(opts *tgoptions) {
 // Defaults to 256.
 func WithRepetitionThreshold(threshold int) TGOption {
 	return repetitionThreshold(threshold)
+}
+
+func (tg *TransitionGraph) Reader() *TransitionGraphReader {
+	return &TransitionGraphReader{
+		tg:     tg,
+		thread: []threadTuple{},
+	}
+}
+
+type TransitionGraphReader struct {
+	// tg is the transition graph to read from.
+	tg *TransitionGraph
+
+	// thread is the current travel path through tg.
+	thread []threadTuple
+}
+
+type threadTuple struct {
+	// node id
+	id string
+
+	// next node position in slice
+	pos int
+
+	// terminal node position counter (used for charval/numval)
+	// for charvals it is used as a mask to know whether to lower or upper a char
+	tpos int
+
+	// total possible variations (used for charval/numval)
+	vtotal int
+
+	// justCut defines if the previous iteration was a cut over the thread
+	// for later iterations.
+	// If true, no deepest travel should be performed on the endpoint node.
+	justCut bool
+}
+
+func (tgr *TransitionGraphReader) Next() bool {
+	// Select root entrypoints to start from
+	idx := 0
+	if len(tgr.thread) != 0 {
+		// If already defined, go on with it
+		idx = tgr.thread[0].pos
+	}
+	if idx == len(tgr.tg.Entrypoints) {
+		return false
+	}
+
+	// produce iff rules are deflated if necessary
+	node := tgr.tg.Entrypoints[idx]
+	return tgr.tg.options.deflateRules || canProduce(node, map[string]struct{}{})
+}
+
+func (tgr *TransitionGraphReader) Scan() []byte {
+	// Select root entrypoints to start from
+	idx := 0
+	if len(tgr.thread) != 0 {
+		// If already defined, go on with it
+		idx = tgr.thread[0].pos
+	} else {
+		// If the thread has not been started yet, create it
+		tgr.thread = []threadTuple{{}} // add initial tuple
+	}
+
+	// Don't read out of bounds i.e. don't produce once traveled
+	// through all the transition graph
+	if idx == len(tgr.tg.Entrypoints) {
+		return nil
+	}
+
+	// Select proper entrypoint
+	n := tgr.tg.Entrypoints[idx]
+
+	// If is the empty node, prepare to go to next entrypoint and
+	// return an empty slice
+	if n == emptyNode {
+		tgr.thread[0].pos++
+		return []byte{}
+	}
+
+	// Else it is a non-empty node, so recurse through the thread
+	b, roll := tgr.produce(n, 1)
+	if roll {
+		tgr.thread[0].pos++
+		tgr.thread = tgr.thread[:1]
+	}
+	return b
+}
+
+func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []byte, roll bool) {
+	// produce iff rules are deflated and if necessary
+	if !tgr.tg.options.deflateRules && !canProduce(node, map[string]struct{}{}) {
+		return nil, false
+	}
+
+	isInThread := len(tgr.thread) > threadIndex
+	isLast := len(node.Nexts) == 0
+	isEndpoint := slices.Contains(tgr.tg.Endpoints, node)
+	isFullyVariated := false
+	tpos := 0
+	if isInThread {
+		tpos = tgr.thread[threadIndex].tpos
+	}
+	vtotal := 0
+
+	// Produce this node content
+	switch v := node.Elem.(type) {
+	case ElemCharVal:
+		prod = make([]byte, 0, len(v.Values))
+		if v.Sensitive {
+			// Produce this whole char value, no need to variate anything
+			prod = append(prod, v.Values...)
+			vtotal++ // still count it else we won't know we "variated" it
+		} else {
+			// Copy each one and make it case-variant if necessary
+			for i, c := range v.Values {
+				isLower := c >= 'a' && c <= 'z'
+				isUpper := c >= 'A' && c <= 'Z'
+				variate := isLower || isUpper
+
+				// Count all possible variations
+				vtotal++
+				if variate {
+					vtotal++
+				}
+
+				// Write down
+				if !variate {
+					prod = append(prod, c)
+				} else {
+					// Compute lower and upper variants
+					lower := c
+					if isUpper {
+						lower = lower - 'A' + 'a'
+					}
+					upper := c
+					if isLower {
+						upper = upper - 'a' + 'A'
+					}
+
+					// Append the good one in its spot
+					if (tpos>>i)%2 == 1 {
+						prod = append(prod, upper)
+					} else {
+						prod = append(prod, lower)
+					}
+				}
+			}
+		}
+
+	case ElemNumVal:
+		prod = make([]byte, 0, len(v.Elems))
+		switch v.Status {
+		case StatSeries:
+			for _, elem := range v.Elems {
+				prod = append(prod, atob(elem, v.Base))
+			}
+			vtotal++ // still count it else we won't know we "variated" it
+
+		case StatRange:
+			min, max := atob(v.Elems[0], v.Base), atob(v.Elems[1], v.Base)
+			dst := int(max) - int(min) + 1
+
+			vtotal += dst // range of possibilities
+
+			// Iteratively select one by one
+			prod = append(prod, byte(int(min)+tpos))
+		}
+
+	default:
+		panic(fmt.Sprintf("should not happen, got type %v", v))
+	}
+
+	isFullyVariated = tpos+1 == vtotal // +1 <= we completed an iteration
+
+	// Register in thread if not known yet
+	if !isInThread {
+		tgr.thread = append(tgr.thread, threadTuple{
+			id:     node.ID,
+			pos:    0,
+			tpos:   tpos, // don't increase yet, will do it later if required
+			vtotal: vtotal,
+		})
+	}
+
+	// If has nothing next (is an endpoint), return fast
+	// Stop here too if we are going to hit infinite recursions
+	if isLast || !hasNextNode(node, tgr.thread[:threadIndex+1], tgr.thread[threadIndex].pos) {
+		tgr.thread[threadIndex].tpos++ // btw we did an iteration :)
+		roll = isFullyVariated
+		return
+	}
+
+	// Else if the node is not the last in the travel but is an intermediary endpoint
+	// that was not yet registered in the thread, we should stop there for now and wait
+	// for the next iteration to go further.
+	// Works too if we just cut it.
+	if isEndpoint && (tgr.thread[threadIndex].justCut || !isInThread) {
+		tgr.thread[threadIndex].justCut = false // reset it
+		return
+	}
+
+	// From now on, the node is not the last in the travel.
+	// If in the thread we take the next node ID.
+	// Else (not yet in the thread) we add it.
+	nid := 0
+	if isInThread {
+		nid = tgr.thread[threadIndex].pos
+	} else {
+		tgr.thread = append(tgr.thread, threadTuple{
+			id:     node.ID,
+			pos:    0,
+			tpos:   tpos,
+			vtotal: vtotal,
+		})
+	}
+
+	// Select next node to produce on (one that is not already in the stack
+	// -> avoid infinite recursions).
+	nn := node.Nexts[nid]
+	for {
+		if !isInThread && transitionInThread(tgr.thread, node.ID, nn.ID) {
+			nid++
+			nn = node.Nexts[nid]
+			continue
+		}
+		break
+	}
+	tgr.thread[threadIndex].pos = nid
+
+	// Produce next node and concat to this one's result
+	sub, roll := tgr.produce(nn, threadIndex+1)
+	if roll {
+		// If it is non fully variated yet, move onto next variation and cut down thread
+		if !isFullyVariated {
+			tgr.thread[threadIndex].tpos++          // this thread tuple needs to go on the next char
+			tgr.thread[threadIndex].justCut = true  // hey future iteration, we just cut it so if you need to produce, go on
+			tgr.thread = tgr.thread[:threadIndex+1] // cut thread from here to regen nexts
+			return append(prod, sub...), false
+		}
+
+		// If there are no nexts, propagate roll
+		if nid+1 == len(node.Nexts) {
+			return append(prod, sub...), true
+		}
+
+		// Then if there is a non-processed (in stack) edge, roll on it, else propagate roll next
+		var nextNotInThread *int
+		for i := nid + 1; i < len(node.Nexts); i++ {
+			if !transitionInThread(tgr.thread[:threadIndex+1], node.ID, node.Nexts[i].ID) {
+				nextNotInThread = &i
+				break
+			}
+		}
+		if nextNotInThread != nil {
+			tgr.thread = tgr.thread[:threadIndex+1]
+			tgr.thread[threadIndex].pos = *nextNotInThread
+			tgr.thread[threadIndex].tpos = 0
+			tgr.thread[threadIndex].vtotal = 0
+
+			return append(prod, sub...), false
+		}
+		return append(prod, sub...), isFullyVariated
+	}
+	return append(prod, sub...), roll
+}
+
+func transitionInThread(thread []threadTuple, from, to string) bool {
+	for i, e := range thread {
+		if e.id == from && i+1 != len(thread) && thread[i+1].id == to {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNextNode(node *Node, thread []threadTuple, pos int) bool {
+	rems := node.Nexts[pos:]
+	for _, rem := range rems {
+		if !transitionInThread(thread, node.ID, rem.ID) {
+			return true
+		}
+	}
+	return false
+}
+
+func canProduce(node *Node, done map[string]struct{}) bool {
+	if node == emptyNode {
+		done["empty"] = struct{}{}
+		return true
+	}
+	done[node.ID] = struct{}{}
+	if _, ok := node.Elem.(ElemRulename); ok {
+		return false
+	}
+	for _, next := range node.Nexts {
+		if _, ok := done[next.ID]; ok {
+			continue
+		}
+		if !canProduce(next, done) {
+			return false
+		}
+	}
+	return true
 }
 
 type tgmachine struct {
@@ -329,7 +638,7 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 			if rep.Min > m.options.repetitionThreshold {
 				return nil, nil, errors.New("repetition threshold reached")
 			}
-			tgs, chi, cho := chainTransitionGraph(elemi, elemo, rep.Min+1)
+			tgs, chi, cho := chainTransitionGraph(elemi, elemo, rep.Min)
 			entrypoints = appendNodes(entrypoints, chi...)
 			endpoints = appendNodes(endpoints, cho...)
 
@@ -470,7 +779,7 @@ func cloneTG(originToNewNodes map[string]cnode, origin *Node) {
 		},
 	}
 
-	// recurse iif not known yet
+	// recurse iff not known yet
 	for _, n := range origin.Nexts {
 		if _, ok := originToNewNodes[n.ID]; ok {
 			continue

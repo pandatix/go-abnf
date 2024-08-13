@@ -6,7 +6,6 @@ import (
 
 	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 //go:embed testdata/void.abnf
@@ -270,16 +269,30 @@ func Test_U_ParseRootNonGroup(t *testing.T) {
 	assert.Equal("a", p[0].Subpaths[0].MatchRule)
 }
 
-func Test_U_EmptyCharVal(t *testing.T) {
-	// Issue #102 use case is an empty char-val that is
-	// incorrectly evaluated as a char-val with a single ".
+func Test_U_ParseEmptyCharVal(t *testing.T) {
+	// Issue #... use case is to parse an empty char-val.
+	// In that situation the lexer would extract a non-empty character
+	// leading post-processing operations inadequate.
+	assert := assert.New(t)
 
-	// First we build our grammar
-	gRaw := []byte("a = \"\"\r\n")
-	g, err := goabnf.ParseABNF(gRaw)
-	require.NoError(t, err)
+	{
+		g, err := goabnf.ParseABNF([]byte("a=\"\"\r\n"))
+		if !assert.Nil(err) {
+			return
+		}
 
-	// Then we make sure "a" is evaluated as empty.
-	v := g.Rulemap["a"].Alternation.Concatenations[0].Repetitions[0].Element.(goabnf.ElemCharVal).Values
-	require.Len(t, v, 0)
+		a := g.Rulemap["a"]
+		assert.Empty(a.Alternation.Concatenations[0].Repetitions[0].Element.(goabnf.ElemCharVal).Values)
+	}
+
+	{
+		g, err := goabnf.ParseABNF([]byte("a=\"abc\"\r\n"))
+		if !assert.Nil(err) {
+			return
+		}
+
+		a := g.Rulemap["a"]
+		bs := a.Alternation.Concatenations[0].Repetitions[0].Element.(goabnf.ElemCharVal).Values
+		assert.Equal("abc", string(bs))
+	}
 }
