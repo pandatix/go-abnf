@@ -153,6 +153,36 @@ var testsParseAbnf = map[string]struct {
 		Validate:  false,
 		ExpectErr: false,
 	},
+	"binary-maximal": {
+		Input:     []byte("a = %b00000000-11111111\r\n"),
+		Validate:  true,
+		ExpectErr: false,
+	},
+	"binary-out": {
+		Input:     []byte("a = %b0000000000000-111111110"),
+		Validate:  true,
+		ExpectErr: true,
+	},
+	"decimal-maximal": {
+		Input:     []byte("a = %d000-255\r\n"),
+		Validate:  true,
+		ExpectErr: false,
+	},
+	"decimal-out": {
+		Input:     []byte("a = %d000000-256"),
+		Validate:  true,
+		ExpectErr: true,
+	},
+	"hexadecimal-maximal": {
+		Input:     []byte("a = %x00-0FF\r\n"),
+		Validate:  true,
+		ExpectErr: false,
+	},
+	"hexadecimal-out": {
+		Input:     []byte("a = %x000-FF0"),
+		Validate:  true,
+		ExpectErr: true,
+	},
 }
 
 func Test_U_ParseABNF(t *testing.T) {

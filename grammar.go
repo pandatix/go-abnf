@@ -814,22 +814,24 @@ func semvalAlternation(alt Alternation) error {
 					val = strings.TrimLeft(val, "0")
 					switch elem.Base {
 					case "B", "b":
-						if len(val) > 7 { // 7 = ceil(log(base, 2^|us-ascii|)), base=2
+						// 8 bits to fill a byte, reject more
+						if len(val) > 8 {
 							return &ErrTooLargeNumeral{
 								Base:  elem.Base,
 								Value: val,
 							}
 						}
 					case "D", "d":
-						// 3 = ceil(log(base, 2^|us-ascii|)), base=10
-						if len(val) > 3 || (len(val) == 3 && (val[0] > '1' || (val[0] == '1' && (val[1] > '2' || (val[1] == '2' && val[2] > '7'))))) {
+						// 3 = ceil(log(base, 2^8)), base=10, maximal value of 255 (included)
+						if len(val) > 3 || (len(val) == 3 && (val[0] > '2' || (val[0] == '2' && (val[1] > '5' || (val[1] == '5' && val[2] > '5'))))) {
 							return &ErrTooLargeNumeral{
 								Base:  elem.Base,
 								Value: val,
 							}
 						}
 					case "X", "x":
-						if len(val) > 2 || (len(val) == 2 && val[0] > '7') { // 2 = ceil(log(base, 2^|us-ascii|)), base=16
+						// 2 hex to fill a byte, reject more
+						if len(val) > 2 {
 							return &ErrTooLargeNumeral{
 								Base:  elem.Base,
 								Value: val,
