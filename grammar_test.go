@@ -32,6 +32,9 @@ var ruleAbnf []byte
 //go:embed testdata/element.abnf
 var elementAbnf []byte
 
+//go:embed testdata/multi.abnf
+var multiAbnf []byte
+
 //go:embed testdata/abnf.abnf
 var abnfAbnf []byte
 
@@ -89,6 +92,11 @@ var testsParseAbnf = map[string]struct {
 	},
 	"element": {
 		Input:     elementAbnf,
+		Validate:  false,
+		ExpectErr: false,
+	},
+	"multi": {
+		Input:     multiAbnf,
 		Validate:  false,
 		ExpectErr: false,
 	},
