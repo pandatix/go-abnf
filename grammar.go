@@ -460,7 +460,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				case "=/":
 					// Block core rules from being used
 					rule := GetRule(rl.Name, nil)
-					if rule == nil {
+					if rule != nil {
 						return nil, &ErrCoreRuleModify{
 							CoreRulename: rl.Name,
 						}
