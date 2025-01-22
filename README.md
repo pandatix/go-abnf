@@ -24,7 +24,7 @@ Capabilities:
 
 ## How it works
 
-Under the good, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be lexed in order to produce a new grammar.
+Under the hood, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be lexed in order to produce a new grammar.
 
 As this implementation is not adhesive to the ABNF grammar of the ABNF grammar as defined in RFC 5234, updated by RFC 7405 and fixed by Erratum 2968 and 3076, it enables genericity.
 This imply that for any valid grammar in ABNF that is properly lexed, if you can write a lexer for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual decomposition of the ABNF grammar, reviewed multiple times.
@@ -39,7 +39,7 @@ Examples can be found in [the examples directory](examples/)
 
 As go-abnf revolves around grammars, you can use a random walk to traverse its graph and efficiently generate valid inputs according to a given grammar.
 
-This is particularly powerfull when you want to fuzz Go implementations that require a very specific input format that the Go's fuzzing engine can't produce.
+This is particularly powerful when you want to fuzz Go implementations that require a very specific input format that the Go's fuzzing engine can't produce.
 
 You can use go-abnf to efficiently produce test cases, as follows.
 
@@ -88,4 +88,4 @@ func FuzzFunction(f *testing.F) {
 
 **Q**: Is there a difference between pap and [bap](https://github.com/ietf-tools/bap) ?
 
-**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, no, pap and bap are very similar as they are ABNF parsers/validators.
+**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningful errors to the end user. Out of this, no, pap and bap are very similar as they are ABNF parsers/validators.
