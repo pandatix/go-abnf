@@ -6,6 +6,7 @@ import (
 
 	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed testdata/void.abnf
@@ -167,7 +168,7 @@ var testsParseAbnf = map[string]struct {
 		ExpectErr: false,
 	},
 	"binary-out": {
-		Input:     []byte("a = %b0000000000000-111111110"),
+		Input:     []byte("a = %b0000000000000-111111110\r\n"),
 		Validate:  true,
 		ExpectErr: true,
 	},
@@ -177,7 +178,7 @@ var testsParseAbnf = map[string]struct {
 		ExpectErr: false,
 	},
 	"decimal-out": {
-		Input:     []byte("a = %d000000-256"),
+		Input:     []byte("a = %d000000-256\r\n"),
 		Validate:  true,
 		ExpectErr: true,
 	},
@@ -187,7 +188,7 @@ var testsParseAbnf = map[string]struct {
 		ExpectErr: false,
 	},
 	"hexadecimal-out": {
-		Input:     []byte("a = %x000-FF0"),
+		Input:     []byte("a = %x000-FF0\r\n"),
 		Validate:  true,
 		ExpectErr: true,
 	},
@@ -201,7 +202,8 @@ func Test_U_ParseABNF(t *testing.T) {
 			assert := assert.New(t)
 
 			assert.NotEmpty(tt.Input)
-			_, err := goabnf.ParseABNF(tt.Input, goabnf.WithValidation(tt.Validate))
+			g, err := goabnf.ParseABNF(tt.Input, goabnf.WithValidation(tt.Validate))
+			_ = g
 
 			if (err != nil) != tt.ExpectErr {
 				t.Fatalf("Expected err: %t ; got: %s", tt.ExpectErr, err)
@@ -266,4 +268,18 @@ func Test_U_ParseRootNonGroup(t *testing.T) {
 	}
 	assert.Equal("b", p[0].MatchRule)
 	assert.Equal("a", p[0].Subpaths[0].MatchRule)
+}
+
+func Test_U_EmptyCharVal(t *testing.T) {
+	// Issue #102 use case is an empty char-val that is
+	// incorrectly evaluated as a char-val with a single ".
+
+	// First we build our grammar
+	gRaw := []byte("a = \"\"\r\n")
+	g, err := goabnf.ParseABNF(gRaw)
+	require.NoError(t, err)
+
+	// Then we make sure "a" is evaluated as empty.
+	v := g.Rulemap["a"].Alternation.Concatenations[0].Repetitions[0].Element.(goabnf.ElemCharVal).Values
+	require.Len(t, v, 0)
 }
