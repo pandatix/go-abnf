@@ -696,7 +696,10 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		value := []byte{}
 		for _, sub := range path.Subpaths[0].Subpaths {
 			if strings.EqualFold(sub.MatchRule, abnfQuotedString.Name) {
-				value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
+				if len(sub.Subpaths) == 3 {
+					value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
+				}
+				// If there are two (the DQUOTEs) then it is an empty string
 				break
 			}
 		}
