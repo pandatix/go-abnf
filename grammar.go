@@ -521,10 +521,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		// Determine first concatenation hit index
 		subs := path.Subpaths[1].Subpaths
 		icnt := 1
-		for {
-			if strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.Name) {
-				break
-			}
+		for icnt < len(subs) && !strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.Name) {
 			icnt++
 		}
 		cnttmp, err = lexABNF(input, subs[icnt])
@@ -581,10 +578,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		// Determine first concatenation hit index
 		subs := path.Subpaths[1].Subpaths
 		irep := 1
-		for {
-			if strings.EqualFold(subs[irep].MatchRule, abnfRepetition.Name) {
-				break
-			}
+		for irep < len(subs) && !strings.EqualFold(subs[irep].MatchRule, abnfRepetition.Name) {
 			irep++
 		}
 		reptmp, err = lexABNF(input, subs[irep])
@@ -673,10 +667,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 	case abnfOption.Name:
 		ialt := 1
-		for {
-			if strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.Name) {
-				break
-			}
+		for ialt < len(path.Subpaths) && !strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.Name) {
 			ialt++
 		}
 		alttmp, err := lexABNF(input, path.Subpaths[ialt])
