@@ -161,26 +161,40 @@ var _ ElemItf = (*ElemCharVal)(nil)
 //
 // This is exposed for custom lexing purposes, please don't use it else.
 type ElemNumVal struct {
-	Base string
+	Base int // 2, 10, or 16
 	// Status could be:
 	// - `statSeries`: `elems` contains all the expected
 	//   values in the order of the grammar defined them ;
 	// - `statRange`: `elems` contains the start and end
 	//   bounds (so no more than two).
 	Status Status
-	Elems  []string
+	Elems  []byte
 }
 
 func (envl ElemNumVal) String() string {
-	str := "%" + envl.Base
 	spl := "."
 	if envl.Status == StatRange {
 		spl = "-"
 	}
-	for _, val := range envl.Elems {
-		str += val + spl
+
+	var b strings.Builder
+	b.Grow(8)
+	b.WriteByte('%')
+	switch envl.Base {
+	case 2:
+		b.WriteByte('b')
+	case 10:
+		b.WriteByte('d')
+	case 16:
+		b.WriteByte('x')
 	}
-	return strings.TrimSuffix(str, spl)
+	for i, val := range envl.Elems {
+		if i > 0 {
+			b.WriteString(spl)
+		}
+		b.WriteString(strconv.FormatUint(uint64(val), envl.Base))
+	}
+	return b.String()
 }
 
 var _ ElemItf = (*ElemNumVal)(nil)

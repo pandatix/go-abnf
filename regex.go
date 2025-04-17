@@ -107,14 +107,14 @@ func (e ElemNumVal) regex(g *Grammar) (string, error) {
 	reg := ""
 	switch e.Status {
 	case StatRange:
-		min, max := atob(e.Elems[0], e.Base), atob(e.Elems[1], e.Base)
+		min, max := e.Elems[0], e.Elems[1]
 		for i := min; i <= max; i++ {
 			reg += regescape(i)
 		}
 
 	case StatSeries:
 		for _, b := range e.Elems {
-			reg += regescape(atob(b, e.Base))
+			reg += regescape(b)
 		}
 	}
 	return "[" + reg + "]", nil
