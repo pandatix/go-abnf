@@ -78,13 +78,14 @@ func (err ErrSemanticRepetition) Error() string {
 // ErrTooLargeNumeral is an error returned when the numeral value
 // provided to parse cannot be handled as a 7-bit US-ASCII valid value.
 type ErrTooLargeNumeral struct {
-	Base, Value string
+	Base  int
+	Value string
 }
 
 var _ error = (*ErrTooLargeNumeral)(nil)
 
 func (err ErrTooLargeNumeral) Error() string {
-	return fmt.Sprintf("too large numeral value %s for base %s", err.Value, err.Base)
+	return fmt.Sprintf("too large numeral value %s for base %d", err.Value, err.Base)
 }
 
 // ErrDuplicatedRule is an error returned when the rule already

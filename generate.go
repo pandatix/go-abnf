@@ -69,12 +69,12 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 			case ElemNumVal:
 				switch elem.Status {
 				case StatRange:
-					min, max := atob(elem.Elems[0], elem.Base), atob(elem.Elems[1], elem.Base)
+					min, max := elem.Elems[0], elem.Elems[1]
 					appendPtr(out, min+byte(rand.Int63())%(max-min+1))
 
 				case StatSeries:
 					for _, v := range elem.Elems {
-						appendPtr(out, atob(v, elem.Base))
+						appendPtr(out, v)
 					}
 				}
 
