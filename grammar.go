@@ -306,7 +306,7 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 		switch v.Status {
 		case StatRange:
 			// Any matches
-			min, max := atob(v.Elems[0], v.Base), atob(v.Elems[1], v.Base)
+			min, max := v.Elems[0], v.Elems[1]
 			if min <= input[index] && input[index] <= max {
 				paths = append(paths, &Path{
 					Subpaths:  nil,
@@ -321,7 +321,7 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 			initialIndex := index
 			matches := true
 			for i := 0; i < len(v.Elems) && matches; i++ {
-				if atob(v.Elems[i], v.Base) != input[index] {
+				if v.Elems[i] != input[index] {
 					matches = false
 				}
 				index++
@@ -717,14 +717,17 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			string(input[basePath.Subpaths[1].Start:basePath.Subpaths[1].End]),
 		}
 
-		var base string
+		var (
+			base  string
+			nbase int
+		)
 		switch basePath.MatchRule {
 		case abnfBinVal.Name:
-			base = "b"
+			base, nbase = "b", 2
 		case abnfDecVal.Name:
-			base = "d"
+			base, nbase = "d", 10
 		case abnfHexVal.Name:
-			base = "x"
+			base, nbase = "x", 16
 		}
 
 		// Find if series or range
@@ -751,10 +754,22 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			}
 		}
 
+		nelems := make([]byte, 0, len(elems))
+		for _, e := range elems {
+			n, err := strconv.ParseUint(e, nbase, 8)
+			if err != nil {
+				return 0, &ErrTooLargeNumeral{
+					Base:  base,
+					Value: e,
+				}
+			}
+			nelems = append(nelems, byte(n))
+		}
+
 		return ElemNumVal{
 			Base:   base,
 			Status: stat,
-			Elems:  elems,
+			Elems:  nelems,
 		}, nil
 	}
 
@@ -779,69 +794,6 @@ func SemvalABNF(g *Grammar) error {
 			if r == nil {
 				return &ErrDependencyNotFound{
 					Rulename: dep,
-				}
-			}
-		}
-	}
-
-	for _, rule := range g.Rulemap {
-		if err := semvalAlternation(rule.Alternation); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func semvalAlternation(alt Alternation) error {
-	for _, concat := range alt.Concatenations {
-		for _, rep := range concat.Repetitions {
-			// min <= max
-			if rep.Max != inf && rep.Min > rep.Max {
-				return &ErrSemanticRepetition{
-					Repetition: rep,
-				}
-			}
-			switch elem := rep.Element.(type) {
-			// num-val base
-			case ElemNumVal:
-				for _, val := range elem.Elems {
-					val = strings.TrimLeft(val, "0")
-					switch elem.Base {
-					case "B", "b":
-						// 8 bits to fill a byte, reject more
-						if len(val) > 8 {
-							return &ErrTooLargeNumeral{
-								Base:  elem.Base,
-								Value: val,
-							}
-						}
-					case "D", "d":
-						// 3 = ceil(log(base, 2^8)), base=10, maximal value of 255 (included)
-						if len(val) > 3 || (len(val) == 3 && (val[0] > '2' || (val[0] == '2' && (val[1] > '5' || (val[1] == '5' && val[2] > '5'))))) {
-							return &ErrTooLargeNumeral{
-								Base:  elem.Base,
-								Value: val,
-							}
-						}
-					case "X", "x":
-						// 2 hex to fill a byte, reject more
-						if len(val) > 2 {
-							return &ErrTooLargeNumeral{
-								Base:  elem.Base,
-								Value: val,
-							}
-						}
-					}
-				}
-
-			// propagate recursion
-			case ElemGroup:
-				if err := semvalAlternation(elem.Alternation); err != nil {
-					return err
-				}
-			case ElemOption:
-				if err := semvalAlternation(elem.Alternation); err != nil {
-					return err
 				}
 			}
 		}
