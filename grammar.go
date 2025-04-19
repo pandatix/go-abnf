@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 )
@@ -452,8 +453,15 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				switch definedAs {
 				case "=":
 					if rule := GetRule(rl.Name, mp); rule != nil {
-						return nil, &ErrDuplicatedRule{
-							Rulename: rl.Name,
+						c, ok := coreRules[rl.Name]
+						if !ok {
+							return nil, &ErrDuplicatedRule{
+								Rulename: rl.Name,
+							}
+						}
+						if !reflect.DeepEqual(rl.Alternation, c.Alternation) {
+							return nil, fmt.Errorf("core rule %q redefined with different definition: %q != %q",
+								rl.Name, c.Alternation, rl.Alternation)
 						}
 					}
 					mp[rl.Name] = &rl
