@@ -192,6 +192,24 @@ var testsParseAbnf = map[string]struct {
 		Validate:  true,
 		ExpectErr: true,
 	},
+
+	"redef-core": {
+		Input:     []byte("DIGIT = %x30-39\r\n"),
+		Validate:  true,
+		ExpectErr: false,
+	},
+	"redef-core-different-base": {
+		// TODO: currently fails, but probably shouldn't? Should be fixed by
+		// https://github.com/pandatix/go-abnf/pull/107
+		Input:     []byte("DIGIT = %d48-58\r\n"),
+		Validate:  true,
+		ExpectErr: true,
+	},
+	"redef-core-different-different": {
+		Input:     []byte("DIGIT = %x30-40\r\n"),
+		Validate:  true,
+		ExpectErr: true,
+	},
 }
 
 func Test_U_ParseABNF(t *testing.T) {
