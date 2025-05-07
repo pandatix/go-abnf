@@ -168,19 +168,35 @@ type ElemNumVal struct {
 	// - `statRange`: `elems` contains the start and end
 	//   bounds (so no more than two).
 	Status Status
-	Elems  []string
+	Elems  []byte
 }
 
 func (envl ElemNumVal) String() string {
-	str := "%" + envl.Base
 	spl := "."
 	if envl.Status == StatRange {
 		spl = "-"
 	}
-	for _, val := range envl.Elems {
-		str += val + spl
+
+	var b strings.Builder
+	b.Grow(8)
+	b.WriteByte('%')
+	b.WriteString(envl.Base)
+	var nbase int
+	switch envl.Base {
+	case "b":
+		nbase = 2
+	case "d":
+		nbase = 10
+	case "x":
+		nbase = 16
 	}
-	return strings.TrimSuffix(str, spl)
+	for i, val := range envl.Elems {
+		if i > 0 {
+			b.WriteString(spl)
+		}
+		b.WriteString(strconv.FormatUint(uint64(val), nbase))
+	}
+	return b.String()
 }
 
 var _ ElemItf = (*ElemNumVal)(nil)
