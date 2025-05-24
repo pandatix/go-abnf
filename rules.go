@@ -36,7 +36,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"41", "5A"},
+								Elems:  []byte{0x41, 0x5A},
 							},
 						},
 					},
@@ -48,7 +48,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"61", "7A"},
+								Elems:  []byte{0x61, 0x7A},
 							},
 						},
 					},
@@ -102,7 +102,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"01", "7F"},
+								Elems:  []byte{0x01, 0x7F},
 							},
 						},
 					},
@@ -124,7 +124,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatSeries,
-								Elems:  []string{"0D"},
+								Elems:  []byte{0x0D},
 							},
 						},
 					},
@@ -172,7 +172,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"00", "1F"},
+								Elems:  []byte{0x00, 0x1F},
 							},
 						},
 					},
@@ -184,7 +184,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatSeries,
-								Elems:  []string{"7F"},
+								Elems:  []byte{0x7F},
 							},
 						},
 					},
@@ -206,7 +206,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"30", "39"},
+								Elems:  []byte{0x30, 0x39},
 							},
 						},
 					},
@@ -228,7 +228,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatSeries,
-								Elems:  []string{"22"},
+								Elems:  []byte{0x22},
 							},
 						},
 					},
@@ -336,7 +336,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatSeries,
-								Elems:  []string{"09"},
+								Elems:  []byte{0x09},
 							},
 						},
 					},
@@ -358,7 +358,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatSeries,
-								Elems:  []string{"0A"},
+								Elems:  []byte{0x0A},
 							},
 						},
 					},
@@ -430,7 +430,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"00", "FF"},
+								Elems:  []byte{0x00, 0xFF},
 							},
 						},
 					},
@@ -452,7 +452,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatSeries,
-								Elems:  []string{"20"},
+								Elems:  []byte{0x20},
 							},
 						},
 					},
@@ -474,7 +474,7 @@ var (
 							Element: ElemNumVal{
 								Base:   "x",
 								Status: StatRange,
-								Elems:  []string{"21", "7E"},
+								Elems:  []byte{0x21, 0x7E},
 							},
 						},
 					},
@@ -1396,7 +1396,7 @@ var (
 													Element: ElemNumVal{
 														Base:   "x",
 														Status: StatRange,
-														Elems:  []string{"20", "21"},
+														Elems:  []byte{0x20, 0x21},
 													},
 												},
 											},
@@ -1408,7 +1408,7 @@ var (
 													Element: ElemNumVal{
 														Base:   "x",
 														Status: StatRange,
-														Elems:  []string{"23", "7E"},
+														Elems:  []byte{0x23, 0x7E},
 													},
 												},
 											},
@@ -1829,7 +1829,7 @@ var (
 													Element: ElemNumVal{
 														Base:   "x",
 														Status: StatRange,
-														Elems:  []string{"20", "3D"},
+														Elems:  []byte{0x20, 0x3D},
 													},
 												},
 											},
@@ -1842,7 +1842,7 @@ var (
 													Element: ElemNumVal{
 														Base:   "x",
 														Status: StatRange,
-														Elems:  []string{"3F", "7E"},
+														Elems:  []byte{0x3F, 0x7E},
 													},
 												},
 											},

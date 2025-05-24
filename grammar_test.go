@@ -160,7 +160,7 @@ var testsParseAbnf = map[string]struct {
 		// This fuzz crasher enabled detecting a mis-undhandling of the defined-as character.
 		Input:     fuzzRegex_eaa469604868c87fAbnf,
 		Validate:  false,
-		ExpectErr: false,
+		ExpectErr: true,
 	},
 	"binary-maximal": {
 		Input:     []byte("a = %b00000000-11111111\r\n"),
