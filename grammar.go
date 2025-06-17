@@ -687,10 +687,11 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		value := []byte{}
 		for _, sub := range path.Subpaths[0].Subpaths {
 			if strings.EqualFold(sub.MatchRule, abnfQuotedString.Name) {
-				if len(sub.Subpaths) == 3 {
-					value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
+				// Skip if empty char-val
+				if len(sub.Subpaths) == 2 {
+					continue
 				}
-				// If there are two (the DQUOTEs) then it is an empty string
+				value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
 				break
 			}
 		}
@@ -728,11 +729,6 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		}
 
 		// Find if series or range
-		switch len(basePath.Subpaths) {
-		case 3:
-
-		}
-
 		if len(basePath.Subpaths) > 2 {
 			hit := basePath.Subpaths[2].Subpaths[0]
 			// Could be either serie or range

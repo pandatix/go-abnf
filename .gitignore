@@ -7,3 +7,11 @@
 
 # Fuzzing files
 testdata/fuzz/*
+
+# Generated files from pap
+*.mmd
+*.svg
+
+# Documents
+*.pdf
+*.bkp
