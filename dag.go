@@ -22,13 +22,13 @@ type Depgraph map[string]*node
 func (g *Grammar) DependencyGraph() Depgraph {
 	graph := Depgraph{}
 	for _, corerule := range coreRules {
-		graph[corerule.Name] = &node{
+		graph[strings.ToLower(corerule.Name)] = &node{
 			Rulename:     corerule.Name,
 			Dependencies: getDependencies(corerule.Alternation),
 		}
 	}
 	for _, rule := range g.Rulemap {
-		graph[rule.Name] = &node{
+		graph[strings.ToLower(rule.Name)] = &node{
 			Rulename:     rule.Name,
 			Dependencies: getDependencies(rule.Alternation),
 		}
@@ -46,7 +46,7 @@ func getDependencies(alt Alternation) []string {
 			case ElemOption:
 				deps = appendDeps(deps, getDependencies(v.Alternation)...)
 			case ElemRulename:
-				deps = appendDeps(deps, v.Name)
+				deps = appendDeps(deps, strings.ToLower(v.Name))
 			}
 		}
 	}
@@ -179,6 +179,7 @@ func isElemLeftTerminating(g *Grammar, stack map[string]*Rule, elem ElemItf) boo
 			return false
 		}
 		rule := GetRule(v.Name, g.Rulemap)
+		stack[v.Name] = rule
 		return isAltLeftTerminating(g, stack, rule.Alternation)
 	case ElemOption:
 		return isAltLeftTerminating(g, stack, v.Alternation)
@@ -207,6 +208,11 @@ func ruleContainsCycle(sccs [][]*node, rulename string) bool {
 				break
 			}
 		}
+	}
+	if rulenode == nil {
+		// If the node corresponding to the rulename does not exist,
+		// consider there is no cycle.
+		return false
 	}
 
 	// Check if cyclic
@@ -283,7 +289,7 @@ func (c *cycle) strongconnect(v *node) {
 	if v.lowlink == v.index {
 		scc := []*node{}
 		w := (*node)(nil)
-		for w == nil || v.Rulename != w.Rulename {
+		for w == nil || !strings.EqualFold(v.Rulename, w.Rulename) {
 			w = c.stack[len(c.stack)-1]
 			c.stack = c.stack[:len(c.stack)-1]
 			w.onStack = false
