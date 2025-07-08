@@ -139,6 +139,112 @@ func hextob(str string) byte {
 	return byte(out)
 }
 
+func btoa(b byte, base string) string {
+	switch base {
+	case "B", "b":
+		return btobin(b)
+	case "D", "d":
+		return btodec(b)
+	case "X", "x":
+		return btohex(b)
+	}
+	// This won't get hit as the ABNF grammar defines only
+	// the previous bases.
+	panic("invalid base")
+}
+
+func btobin(b byte) string {
+	out := ""
+	for b != 0 {
+		s := ""
+		switch b % 2 {
+		case 0:
+			s = "0"
+		case 1:
+			s = "1"
+		}
+		out = s + out
+		b /= 2
+	}
+	return strings.TrimLeft(out, "0")
+}
+
+func btodec(b byte) string {
+	out := ""
+	for b != 0 {
+		s := ""
+		switch b % 10 {
+		case 0:
+			s = "0"
+		case 1:
+			s = "1"
+		case 2:
+			s = "2"
+		case 3:
+			s = "3"
+		case 4:
+			s = "4"
+		case 5:
+			s = "5"
+		case 6:
+			s = "6"
+		case 7:
+			s = "7"
+		case 8:
+			s = "8"
+		case 9:
+			s = "9"
+		}
+		out = s + out
+		b /= 10
+	}
+	return strings.TrimLeft(out, "0")
+}
+
+func btohex(b byte) string {
+	out := ""
+	for b != 0 {
+		s := ""
+		switch b % 16 {
+		case 0x0:
+			s = "0"
+		case 0x1:
+			s = "1"
+		case 0x2:
+			s = "2"
+		case 0x3:
+			s = "3"
+		case 0x4:
+			s = "4"
+		case 0x5:
+			s = "5"
+		case 0x6:
+			s = "6"
+		case 0x7:
+			s = "7"
+		case 0x8:
+			s = "8"
+		case 0x9:
+			s = "9"
+		case 0xa:
+			s = "a"
+		case 0xb:
+			s = "b"
+		case 0xc:
+			s = "c"
+		case 0xd:
+			s = "d"
+		case 0xe:
+			s = "e"
+		case 0xf:
+			s = "f"
+		}
+		out = s + out
+		b /= 16
+	}
+	return strings.TrimLeft(out, "0")
+}
+
 func pow(v, e int) int {
 	if e == 0 {
 		return 1

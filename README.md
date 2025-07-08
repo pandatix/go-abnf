@@ -88,4 +88,4 @@ func FuzzFunction(f *testing.F) {
 
 **Q**: Is there a difference between pap and [bap](https://github.com/ietf-tools/bap) ?
 
-**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningful errors to the end user. Out of this, no, pap and bap are very similar as they are ABNF parsers/validators.
+**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap resides is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, pap goes further as it enables you to build the transition graph from a given grammar and fuzz Go code.

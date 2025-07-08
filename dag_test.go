@@ -29,6 +29,10 @@ func Test_U_IsDAG(t *testing.T) {
 			Input:         cycleAbnf,
 			ExpectedIsDag: false,
 		},
+		"cycle-cases": {
+			Input:         []byte("a = B\r\nb = A\r\n"),
+			ExpectedIsDag: false,
+		},
 		"abnf": {
 			// The ABNF grammar is cylic due to the ~Composite DP on alternation with group and option
 			Input:         abnfAbnf,

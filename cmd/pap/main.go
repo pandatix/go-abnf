@@ -25,6 +25,7 @@ func main() {
 		Commands: []*cli.Command{
 			commands.Validate,
 			commands.Generate,
+			commands.TransitionGraph,
 			commands.Regex,
 		},
 		Flags: []cli.Flag{
