@@ -1,11 +1,10 @@
 package goabnf
 
 import (
-	_ "embed"
 	"testing"
 )
 
-func FuzzGenerate(f *testing.F) {
+func FuzzGeneratedValid(f *testing.F) {
 	for _, tt := range testsGenerate {
 		f.Add(tt.Seed, tt.Rulename)
 	}

@@ -67,7 +67,7 @@ func (g *Grammar) PrettyPrint() string {
 //
 // Notice it does not matches specifically ABNF grammar, but any
 // compatible grammar. The most common case is parsing an input with
-// the ABNF grammar as source, which is then lexed to fall back into
+// the ABNF grammar as source, which is then evaluated to fall back into
 // a ready-to-go ABNF grammar of this input.
 // There may exist specific cases where you want to use another grammar
 // as source (e.g. EBNF grammar provided by parsing EBNF specification
@@ -87,16 +87,10 @@ type Path struct {
 }
 
 // ParseABNF is a helper facilitating the call to Parse using the
-// pre-computed ABNF grammar and lex the resulting to produce a
-// ready-to-use grammar.
-func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
-	// Process functional options
-	o := &parseABNFOptions{
-		validate: defaultValidate,
-	}
-	for _, opt := range opts {
-		opt.applyParseABNF(o)
-	}
+// pre-computed ABNF grammar and evaluated the resulting to produce
+// a ready-to-use grammar.
+func ParseABNF(input []byte, opts ...ABNFOption) (*Grammar, error) {
+	o := process(opts...)
 
 	// Parse input with ABNF grammar
 	// Don't need to transmit deepness option, as we can be sure ABNF won't
@@ -117,13 +111,13 @@ func ParseABNF(input []byte, opts ...ParseABNFOption) (*Grammar, error) {
 		}
 	}
 
-	// Lex path
-	g, err := LexABNF(input, path)
+	// Evaluate the only path
+	g, err := EvaluateABNF(input, path, opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validate semantics
+	// Validate semantics if requested to
 	if o.validate {
 		if err := SemvalABNF(g); err != nil {
 			return nil, err
@@ -408,16 +402,31 @@ func solveKeepGoing(rep Repetition, input []byte, index, i int) bool {
 	return couldHandle && i < rep.Max
 }
 
-// LexABNF is the lexer for the ABNF structural model implemented.
+// LexABNF has been replaced by [EvaluateABNF], please refer to it.
+//
+// Deprecated: replace by EvaluateABNF.
 func LexABNF(input []byte, path *Path) (*Grammar, error) {
-	gr, err := lexABNF(input, path)
+	return EvaluateABNF(input, path)
+}
+
+// EvaluateABNF is an evaluator for the ABNF structural model as per RFCs and Erratum.
+func EvaluateABNF(input []byte, path *Path, opts ...ABNFOption) (*Grammar, error) {
+	eval := evaluator{
+		options: process(opts...),
+	}
+
+	gr, err := eval.travel(input, path)
 	if err != nil {
 		return nil, err
 	}
 	return gr.(*Grammar), nil
 }
 
-func lexABNF(input []byte, path *Path) (any, error) {
+type evaluator struct {
+	options *abnfOptions
+}
+
+func (eval *evaluator) travel(input []byte, path *Path) (any, error) {
 	switch path.MatchRule {
 	case abnfRulelist.Name:
 		mp := map[string]*Rule{}
@@ -427,8 +436,8 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		for i := 0; i < len(path.Subpaths); i++ {
 			// Only work on rules (i.e. skip empty lines)
 			if sub.MatchRule == "rule" {
-				// Lex it to actual ABNF rule object
-				rltmp, err := lexABNF(input, sub)
+				// eval it to actual ABNF rule object
+				rltmp, err := eval.travel(input, sub)
 				if err != nil {
 					return nil, err
 				}
@@ -451,22 +460,34 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				definedAs := strings.TrimSpace(string(input[defAs.Start:defAs.End]))
 				switch definedAs {
 				case "=":
-					if rule := GetRule(rl.Name, mp); rule != nil {
-						return nil, &ErrDuplicatedRule{
-							Rulename: rl.Name,
+					coreRule := GetRule(rl.Name, nil)
+					isCoreRule := coreRule != nil
+					if isCoreRule {
+						if !eval.options.redefineCore {
+							return nil, &ErrCoreRuleModify{
+								CoreRulename: rl.Name,
+							}
+						}
+					} else {
+						if rule := GetRule(rl.Name, mp); rule != nil {
+							return nil, &ErrDuplicatedRule{
+								Rulename: rl.Name,
+							}
 						}
 					}
+
 					mp[rl.Name] = &rl
 				case "=/":
-					// Block core rules from being used
-					rule := GetRule(rl.Name, nil)
-					if rule != nil {
+					coreRule := GetRule(rl.Name, nil)
+					isCoreRule := coreRule != nil
+					if !eval.options.redefineCore && isCoreRule {
 						return nil, &ErrCoreRuleModify{
 							CoreRulename: rl.Name,
 						}
 					}
+
 					// Get it from rulemap and ensure it already exist
-					rule = GetRule(rl.Name, mp)
+					rule := GetRule(rl.Name, mp)
 					if rule == nil {
 						return nil, &ErrRuleNotFound{
 							Rulename: rl.Name,
@@ -488,7 +509,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfRule.Name:
 		rulename := string(input[path.Subpaths[0].Start:path.Subpaths[0].End])
 		pth := path.Subpaths[2].Subpaths[0] // -> rule -> elements -> alternation
-		alttmp, err := lexABNF(input, pth)
+		alttmp, err := eval.travel(input, pth)
 		if err != nil {
 			return nil, err
 		}
@@ -505,7 +526,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfAlternation.Name:
 		// Extract first concatenation, must exist
 		concatenations := make([]Concatenation, 0, 1)
-		cnttmp, err := lexABNF(input, path.Subpaths[0])
+		cnttmp, err := eval.travel(input, path.Subpaths[0])
 		if err != nil {
 			return nil, err
 		}
@@ -524,7 +545,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		for icnt < len(subs) && !strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.Name) {
 			icnt++
 		}
-		cnttmp, err = lexABNF(input, subs[icnt])
+		cnttmp, err = eval.travel(input, subs[icnt])
 		if err != nil {
 			return nil, err
 		}
@@ -532,7 +553,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 		// Following are hits too, last of each subpaths is another concatenation
 		for _, sub := range subs[icnt+1:] {
-			cnttmp, err := lexABNF(input, sub.Subpaths[len(sub.Subpaths)-1])
+			cnttmp, err := eval.travel(input, sub.Subpaths[len(sub.Subpaths)-1])
 			if err != nil {
 				return nil, err
 			}
@@ -551,7 +572,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 				break
 			}
 		}
-		alttmp, err := lexABNF(input, alt)
+		alttmp, err := eval.travel(input, alt)
 		if err != nil {
 			return nil, err
 		}
@@ -562,7 +583,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	case abnfConcatenation.Name:
 		// Extract first repetition, must exist
 		repetitions := make([]Repetition, 0, 1)
-		reptmp, err := lexABNF(input, path.Subpaths[0])
+		reptmp, err := eval.travel(input, path.Subpaths[0])
 		if err != nil {
 			return nil, err
 		}
@@ -581,7 +602,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		for irep < len(subs) && !strings.EqualFold(subs[irep].MatchRule, abnfRepetition.Name) {
 			irep++
 		}
-		reptmp, err = lexABNF(input, subs[irep])
+		reptmp, err = eval.travel(input, subs[irep])
 		if err != nil {
 			return nil, err
 		}
@@ -589,7 +610,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 
 		// Following are hits too, last of each subpaths is another concatenation
 		for _, sub := range subs[irep+1:] {
-			reptmp, err := lexABNF(input, sub.Subpaths[len(sub.Subpaths)-1])
+			reptmp, err := eval.travel(input, sub.Subpaths[len(sub.Subpaths)-1])
 			if err != nil {
 				return nil, err
 			}
@@ -655,7 +676,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 			}
 		}
 
-		elemtmp, err := lexABNF(input, element.Subpaths[0])
+		elemtmp, err := eval.travel(input, element.Subpaths[0])
 		if err != nil {
 			return nil, err
 		}
@@ -670,7 +691,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 		for ialt < len(path.Subpaths) && !strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.Name) {
 			ialt++
 		}
-		alttmp, err := lexABNF(input, path.Subpaths[ialt])
+		alttmp, err := eval.travel(input, path.Subpaths[ialt])
 		if err != nil {
 			return nil, err
 		}
@@ -755,7 +776,7 @@ func lexABNF(input []byte, path *Path) (any, error) {
 	}
 
 	if len(path.Subpaths) == 1 {
-		return lexABNF(input, path.Subpaths[0])
+		return eval.travel(input, path.Subpaths[0])
 	}
 	panic(fmt.Sprintf("unhandlable path from %d to %d: \"%s\" ; sneek peak around \"%s\"", path.Start, path.End, input[path.Start:path.End], input[max(path.Start-10, 0):min(path.End+10, 0)]))
 }
