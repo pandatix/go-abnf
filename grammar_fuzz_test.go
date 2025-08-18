@@ -206,8 +206,8 @@ var testsParseAbnf = map[string]struct {
 }
 
 func FuzzParseABNF(f *testing.F) {
-	for _, test := range testsParseAbnf {
-		f.Add(test.Input)
+	for _, tt := range testsParseAbnf {
+		f.Add(tt.Input)
 	}
 
 	f.Fuzz(func(t *testing.T, input []byte) {
@@ -228,7 +228,7 @@ func FuzzParseABNF(f *testing.F) {
 	})
 }
 
-func FuzzParseABNF_Generate(f *testing.F) {
+func FuzzGeneratedABNF(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int64) {
 		input, _ := ABNF.Generate(seed, "rulelist")
 
