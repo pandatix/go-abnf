@@ -1,10 +1,9 @@
-package goabnf_test
+package goabnf
 
 import (
 	_ "embed"
 	"testing"
 
-	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -201,7 +200,7 @@ func Test_U_ParseABNF(t *testing.T) {
 			assert := assert.New(t)
 
 			assert.NotEmpty(tt.Input)
-			g, err := goabnf.ParseABNF(tt.Input, goabnf.WithValidation(tt.Validate))
+			g, err := ParseABNF(tt.Input, WithValidation(tt.Validate))
 			_ = g
 
 			if (err != nil) != tt.ExpectErr {
@@ -219,8 +218,8 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// Test the hardcoded ABNF is:
 	// - valid (string method works)
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
-	hardcoded := goabnf.ABNF.String()
-	g, err := goabnf.ParseABNF([]byte(hardcoded))
+	hardcoded := ABNF.String()
+	g, err := ParseABNF([]byte(hardcoded))
 	if !assert.Nil(err) {
 		t.FailNow()
 	}
@@ -230,14 +229,14 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
 	// (1a) with the hardcoded ABNF grammar
 	fresh := g.String()
-	ng, err := goabnf.ParseABNF([]byte(fresh))
+	ng, err := ParseABNF([]byte(fresh))
 	assert.Equal(g, ng)
 	assert.Nil(err)
 
-	assert.Equal(goabnf.ABNF, ng)
+	assert.Equal(ABNF, ng)
 
 	// 1b (with the freshly produced ABNF grammar)
-	sol, err := goabnf.Parse([]byte(fresh), g, "rulelist")
+	sol, err := Parse([]byte(fresh), g, "rulelist")
 	assert.NotNil(sol)
 	assert.Nil(err)
 }
@@ -248,14 +247,14 @@ func Test_U_ParseRootNonGroup(t *testing.T) {
 	assert := assert.New(t)
 
 	// First we build our grammar
-	g, err := goabnf.ParseABNF(platypusAbnf)
+	g, err := ParseABNF(platypusAbnf)
 	if !assert.Nil(err) {
 		return
 	}
 
 	// Then we consider an input, valid according to our grammar.
 	input := []byte("a")
-	p, err := goabnf.Parse(input, g, "b")
+	p, err := Parse(input, g, "b")
 	if !assert.Nil(err) {
 		return
 	}
@@ -276,23 +275,23 @@ func Test_U_ParseEmptyCharVal(t *testing.T) {
 	assert := assert.New(t)
 
 	{
-		g, err := goabnf.ParseABNF([]byte("a=\"\"\r\n"))
+		g, err := ParseABNF([]byte("a=\"\"\r\n"))
 		if !assert.Nil(err) {
 			return
 		}
 
 		a := g.Rulemap["a"]
-		assert.Empty(a.Alternation.Concatenations[0].Repetitions[0].Element.(goabnf.ElemCharVal).Values)
+		assert.Empty(a.Alternation.Concatenations[0].Repetitions[0].Element.(ElemCharVal).Values)
 	}
 
 	{
-		g, err := goabnf.ParseABNF([]byte("a=\"abc\"\r\n"))
+		g, err := ParseABNF([]byte("a=\"abc\"\r\n"))
 		if !assert.Nil(err) {
 			return
 		}
 
 		a := g.Rulemap["a"]
-		bs := a.Alternation.Concatenations[0].Repetitions[0].Element.(goabnf.ElemCharVal).Values
+		bs := a.Alternation.Concatenations[0].Repetitions[0].Element.(ElemCharVal).Values
 		assert.Equal("abc", string(bs))
 	}
 }

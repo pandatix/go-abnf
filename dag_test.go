@@ -1,10 +1,9 @@
-package goabnf_test
+package goabnf
 
 import (
 	_ "embed"
 	"testing"
 
-	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -44,7 +43,7 @@ func Test_U_IsDAG(t *testing.T) {
 		t.Run(testname, func(t *testing.T) {
 			assert := assert.New(t)
 
-			g, err := goabnf.ParseABNF(tt.Input)
+			g, err := ParseABNF(tt.Input)
 			if !assert.Nil(err) {
 				t.FailNow()
 			}
@@ -67,13 +66,13 @@ func Test_U_RuleContainsCycle(t *testing.T) {
 	t.Parallel()
 
 	var tests = map[string]struct {
-		Grammar     *goabnf.Grammar
+		Grammar     *Grammar
 		Rulename    string
 		ExpectedRes bool
 		ExpectErr   bool
 	}{
 		"abnf": {
-			Grammar:     goabnf.ABNF,
+			Grammar:     ABNF,
 			Rulename:    "rulelist",
 			ExpectedRes: true,
 			ExpectErr:   false,
@@ -115,13 +114,13 @@ func Test_U_IsLeftTerminating(t *testing.T) {
 	t.Parallel()
 
 	var tests = map[string]struct {
-		Grammar     *goabnf.Grammar
+		Grammar     *Grammar
 		Rulename    string
 		ExpectedRes bool
 		ExpectErr   bool
 	}{
 		"abnf": {
-			Grammar:     goabnf.ABNF,
+			Grammar:     ABNF,
 			Rulename:    "rulelist",
 			ExpectedRes: true,
 			ExpectErr:   false,

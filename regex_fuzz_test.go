@@ -1,29 +1,27 @@
-package goabnf_test
+package goabnf
 
 import (
 	"bytes"
 	"regexp"
 	"testing"
-
-	goabnf "github.com/pandatix/go-abnf"
 )
 
 func FuzzRegex(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int64, rulename string) {
-		input, _ := goabnf.ABNF.Generate(seed, "rulelist")
+		input, _ := ABNF.Generate(seed, "rulelist")
 		t.Logf("seed: %d", seed)
 		t.Logf("input: %s", bytes.ReplaceAll(input, []byte{'\r', '\n'}, []byte{'\n'}))
-		g, err := goabnf.ParseABNF(input)
+		g, err := ParseABNF(input)
 		if err != nil {
 			return
 		}
 
 		raw, err := g.Regex(rulename)
 		if err != nil {
-			if _, ok := err.(*goabnf.ErrRuleNotFound); ok {
+			if _, ok := err.(*ErrRuleNotFound); ok {
 				return
 			}
-			if err == goabnf.ErrHandlingProseVal {
+			if err == ErrHandlingProseVal {
 				return
 			}
 			t.Fatalf("was not expecting the regex build to come up with an error, got: %s", err)

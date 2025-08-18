@@ -1,20 +1,19 @@
-package goabnf_test
+package goabnf
 
 import (
 	"regexp"
 	"testing"
 
-	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
 )
 
 var testsRegex = map[string]struct {
-	Grammar   *goabnf.Grammar
+	Grammar   *Grammar
 	Rulename  string
 	ExpectErr bool
 }{
 	"abnf-alpha": {
-		Grammar:   goabnf.ABNF,
+		Grammar:   ABNF,
 		Rulename:  "alpha",
 		ExpectErr: false,
 	},

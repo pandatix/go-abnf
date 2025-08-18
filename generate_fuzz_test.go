@@ -1,10 +1,8 @@
-package goabnf_test
+package goabnf
 
 import (
 	_ "embed"
 	"testing"
-
-	goabnf "github.com/pandatix/go-abnf"
 )
 
 func FuzzGenerate(f *testing.F) {
@@ -13,7 +11,7 @@ func FuzzGenerate(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, seed int64, rulename string) {
-		out, err := goabnf.ABNF.Generate(seed, rulename, goabnf.WithRepMax(16), goabnf.WithThreshold(1024))
+		out, err := ABNF.Generate(seed, rulename, WithRepMax(16), WithThreshold(1024))
 		if err != nil {
 			if len(out) != 0 {
 				t.Fatal("output should be empty in case of an error")
@@ -21,7 +19,7 @@ func FuzzGenerate(f *testing.F) {
 			return
 		}
 
-		valid, err := goabnf.ABNF.IsValid(rulename, out)
+		valid, err := ABNF.IsValid(rulename, out)
 		if err != nil || !valid {
 			t.Fatalf("generated output is invalid, out: %s", out)
 		}
