@@ -34,7 +34,7 @@ func validate(ctx *cli.Context) error {
 	}
 
 	// Validate ABNF input
-	opts := []goabnf.ParseABNFOption{}
+	opts := []goabnf.ABNFOption{}
 	if ctx.IsSet("sem-val") {
 		opts = append(opts, goabnf.WithValidation(ctx.Bool("sem-val")))
 	}

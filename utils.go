@@ -259,10 +259,11 @@ func pow(v, e int) int {
 // it is a core rule or present in the grammar, or nil if not found.
 // It validates the RFC 5234 Section 2.1 "rule names are case insensitive".
 func GetRule(rulename string, rulemap map[string]*Rule) *Rule {
-	if rule := getRuleIn(rulename, coreRules); rule != nil {
+	// First look in the newly defined rules, as we could override definitions
+	if rule := getRuleIn(rulename, rulemap); rule != nil {
 		return rule
 	}
-	return getRuleIn(rulename, rulemap)
+	return getRuleIn(rulename, coreRules)
 }
 
 func getRuleIn(rulename string, rulemap map[string]*Rule) *Rule {

@@ -49,9 +49,13 @@ var aftnAbnf []byte
 //go:embed testdata/fuzz_regex_eaa469604868c87f.abnf
 var fuzzRegex_eaa469604868c87fAbnf []byte
 
+//go:embed testdata/redefine.abnf
+var redefineAbnf []byte
+
 var testsParseAbnf = map[string]struct {
 	Input     []byte
 	Validate  bool
+	Redefine  bool
 	ExpectErr bool
 }{
 	"void": {
@@ -190,6 +194,17 @@ var testsParseAbnf = map[string]struct {
 		Validate:  true,
 		ExpectErr: true,
 	},
+	"redefine": {
+		// This tests for behavioral retrocompatiblity
+		Input:     redefineAbnf,
+		Redefine:  false, // default behavior
+		ExpectErr: true,
+	},
+	"redefine-granted": {
+		Input:     redefineAbnf,
+		Redefine:  true,
+		ExpectErr: false,
+	},
 }
 
 func Test_U_ParseABNF(t *testing.T) {
@@ -200,7 +215,10 @@ func Test_U_ParseABNF(t *testing.T) {
 			assert := assert.New(t)
 
 			assert.NotEmpty(tt.Input)
-			g, err := ParseABNF(tt.Input, WithValidation(tt.Validate))
+			g, err := ParseABNF(tt.Input,
+				WithValidation(tt.Validate),
+				WithRedefineCoreRules(tt.Redefine),
+			)
 			_ = g
 
 			if (err != nil) != tt.ExpectErr {
