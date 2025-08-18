@@ -1,9 +1,7 @@
-package goabnf_test
+package goabnf
 
 import (
 	"testing"
-
-	goabnf "github.com/pandatix/go-abnf"
 )
 
 func FuzzParseABNF(f *testing.F) {
@@ -12,13 +10,13 @@ func FuzzParseABNF(f *testing.F) {
 	}
 
 	f.Fuzz(func(t *testing.T, input []byte) {
-		grammar, err := goabnf.ParseABNF(input)
+		grammar, err := ParseABNF(input)
 
 		if err != nil {
 			if grammar != nil {
 				t.Fatal("Expected no path when error")
 			}
-			if err, ok := err.(*goabnf.ErrMultipleSolutionsFound); ok {
+			if err, ok := err.(*ErrMultipleSolutionsFound); ok {
 				t.Fatalf("For input %s, got error %s", input, err)
 			}
 			return
@@ -31,15 +29,15 @@ func FuzzParseABNF(f *testing.F) {
 
 func FuzzParseABNF_Generate(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int64) {
-		input, _ := goabnf.ABNF.Generate(seed, "rulelist")
+		input, _ := ABNF.Generate(seed, "rulelist")
 
-		g, err := goabnf.ParseABNF(input, goabnf.WithValidation(false))
+		g, err := ParseABNF(input, WithValidation(false))
 
 		if err != nil {
 			if g != nil {
 				t.Fatal("Expected no path when error")
 			}
-			if err, ok := err.(*goabnf.ErrMultipleSolutionsFound); ok {
+			if err, ok := err.(*ErrMultipleSolutionsFound); ok {
 				t.Fatalf("For input %s, got error %s", input, err)
 			}
 			return

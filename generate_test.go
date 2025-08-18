@@ -1,15 +1,14 @@
-package goabnf_test
+package goabnf
 
 import (
 	"testing"
 
-	goabnf "github.com/pandatix/go-abnf"
 	"github.com/stretchr/testify/assert"
 )
 
 var (
 	testsGenerate = map[string]struct {
-		Grammar   *goabnf.Grammar
+		Grammar   *Grammar
 		Seed      int64
 		Rulename  string
 		ExpectErr bool
@@ -39,31 +38,31 @@ var (
 			ExpectErr: true,
 		},
 		"abnf-rulelist-0": {
-			Grammar:   goabnf.ABNF,
+			Grammar:   ABNF,
 			Seed:      0,
 			Rulename:  "rulelist",
 			ExpectErr: false,
 		},
 		"abnf-rulelist-1": {
-			Grammar:   goabnf.ABNF,
+			Grammar:   ABNF,
 			Seed:      1,
 			Rulename:  "rulelist",
 			ExpectErr: false,
 		},
 		"abnf-rule-64": {
-			Grammar:   goabnf.ABNF,
+			Grammar:   ABNF,
 			Seed:      64,
 			Rulename:  "rule",
 			ExpectErr: false,
 		},
 		"abnf-rule-14": {
-			Grammar:   goabnf.ABNF,
+			Grammar:   ABNF,
 			Seed:      14,
 			Rulename:  "rule",
 			ExpectErr: false,
 		},
 		"abnf-rulelist-499": {
-			Grammar:   goabnf.ABNF,
+			Grammar:   ABNF,
 			Seed:      499,
 			Rulename:  "rulelist",
 			ExpectErr: false,
@@ -79,7 +78,7 @@ func Test_U_Generate(t *testing.T) {
 			assert := assert.New(t)
 
 			// Generate a random output for a given rule
-			out, err := tt.Grammar.Generate(tt.Seed, tt.Rulename, goabnf.WithRepMax(4), goabnf.WithThreshold(64))
+			out, err := tt.Grammar.Generate(tt.Seed, tt.Rulename, WithRepMax(4), WithThreshold(64))
 			if tt.ExpectErr {
 				assert.NotNil(err)
 				return
@@ -93,8 +92,8 @@ func Test_U_Generate(t *testing.T) {
 	}
 }
 
-func mustGrammar(input string) *goabnf.Grammar {
-	g, err := goabnf.ParseABNF([]byte(input))
+func mustGrammar(input string) *Grammar {
+	g, err := ParseABNF([]byte(input))
 	if err != nil {
 		panic(err)
 	}
