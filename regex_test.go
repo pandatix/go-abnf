@@ -7,6 +7,38 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+var testsRegex = map[string]struct {
+	Grammar   *Grammar
+	Rulename  string
+	ExpectErr bool
+}{
+	"abnf-alpha": {
+		Grammar:   ABNF,
+		Rulename:  "alpha",
+		ExpectErr: false,
+	},
+	"cycle": {
+		Grammar:   mustGrammar(string(cycleAbnf)),
+		Rulename:  "a",
+		ExpectErr: true,
+	},
+	"void": {
+		Grammar:   mustGrammar(string(voidAbnf)),
+		Rulename:  "",
+		ExpectErr: true,
+	},
+	"nocycle": {
+		Grammar:   mustGrammar(string(nocycleAbnf)),
+		Rulename:  "a",
+		ExpectErr: false,
+	},
+	"group-option": {
+		Grammar:   mustGrammar("a = 1*(*[\"b.\"] *3%x61.7a)\r\n"),
+		Rulename:  "a",
+		ExpectErr: false,
+	},
+}
+
 func Test_U_Regex(t *testing.T) {
 	t.Parallel()
 
