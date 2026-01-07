@@ -3,7 +3,7 @@ package goabnf
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testsGenerate = map[string]struct {
@@ -84,19 +84,14 @@ func Test_U_Generate(t *testing.T) {
 
 	for testname, tt := range testsGenerate {
 		t.Run(testname, func(t *testing.T) {
-			assert := assert.New(t)
-
 			// Generate a random output for a given rule
 			out, err := tt.Grammar.Generate(tt.Seed, tt.Rulename, WithRepMax(4), WithThreshold(64))
 			if tt.ExpectErr {
-				assert.NotNil(err)
-				return
+				require.Error(t, err)
 			} else {
-				if !assert.Nil(err) {
-					return
-				}
+				require.NoError(t, err)
 			}
-			assert.NotEmpty(out)
+			require.NotEmpty(t, out)
 		})
 	}
 }

@@ -70,7 +70,7 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 				switch elem.Status {
 				case StatRange:
 					min, max := numvalToRune(elem.Elems[0], elem.Base), numvalToRune(elem.Elems[1], elem.Base)
-					r := min + (rune(rand.Int63()&0x0F) % (max + min + 1)) // mask 0x0F to keep the 32-bit part (rune size)
+					r := min + (rune(rand.Int63()&0x0F) % (max - min + 1)) // mask 0x0F to keep the 32-bit part (rune size)
 					appendPtr(out, r)
 
 				case StatSeries:
