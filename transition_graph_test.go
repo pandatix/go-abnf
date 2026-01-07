@@ -430,7 +430,6 @@ func Test_U_TransitionGraphExhaustiveCombinations(t *testing.T) {
 			if tt.ExpectedCombinations != nil {
 				assert.ElementsMatch(tt.ExpectedCombinations, elems)
 			} else {
-				t.Logf("Got %s", elems)
 				assert.Equal(tt.ExpectedNumerCombinations, len(elems))
 			}
 		})

@@ -21,7 +21,7 @@ Capabilities:
  - [X] create a minimal set of tests that covers the full grammar
  - [X] generate a visual representation of the ABNF grammar provided (mermaid)
  - [X] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
- - [ ] support Unicode rather than UTF-8
+ - [X] support Unicode rather than UTF-8
 
 ## How it works
 
@@ -89,4 +89,4 @@ func FuzzFunction(f *testing.F) {
 
 **Q**: Is there a difference between pap and [bap](https://github.com/ietf-tools/bap) ?
 
-**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap resides is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, pap goes further as it enables you to build the transition graph from a given grammar and fuzz Go code.
+**R**: Yes, first of all the language (i.e. Go) enables **more portability thus integration in workflows**. But the real difference between pap and bap resides is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, pap goes further as it enables you to **build the transition graph** from a given grammar and fuzz Go code, but also **support Unicode code points** that might be usefull (e.g., [TOML is specified in ABNF](https://github.com/toml-lang/toml/blob/main/toml.abnf))

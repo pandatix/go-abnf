@@ -68,7 +68,7 @@ var testsGenerate = map[string]struct {
 	},
 	"non-ascii": {
 		// This test case covers the case where a num-val produces a non-ASCII
-		// value, thus has a big value (or boundaries).
+		// value, thus has a big value.
 		// It comes from #105 and is especially extracted from the TOML official
 		// ABNF grammar (https://github.com/toml-lang/toml/blob/1.0.0/toml.abnf)
 		// It has slightly be modified to make sure whatever the seed it generates
