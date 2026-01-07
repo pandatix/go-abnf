@@ -215,7 +215,7 @@ const (
 	StatRange
 )
 
-// ABNF is the manually parsed+lexed+validated ABNF grammar.
+// ABNF is the manually parsed+evaluated+validated ABNF grammar.
 var ABNF = &Grammar{
 	Rulemap: map[string]*Rule{
 		abnfRulelist.Name:              abnfRulelist,

@@ -154,7 +154,7 @@ var testsParseAbnf = map[string]struct {
 		ExpectErr: false,
 	},
 	"Fuzz_395eb15ada9c6900": {
-		// This fuzz crasher enabled detecting missing prose-val lexing support.
+		// This fuzz crasher enabled detecting missing prose-val evaluation support.
 		Input:     []byte("A=<>\r\n"),
 		Validate:  false,
 		ExpectErr: false,

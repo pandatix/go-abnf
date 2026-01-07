@@ -87,7 +87,7 @@ func Test_U_ParseRootNonGroup(t *testing.T) {
 
 func Test_U_ParseEmptyCharVal(t *testing.T) {
 	// Issue #... use case is to parse an empty char-val.
-	// In that situation the lexer would extract a non-empty character
+	// In that situation the evaluator would extract a non-empty character
 	// leading post-processing operations inadequate.
 	assert := assert.New(t)
 

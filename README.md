@@ -25,10 +25,10 @@ Capabilities:
 
 ## How it works
 
-Under the hood, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be lexed in order to produce a new grammar.
+Under the hood, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be evaluated in order to produce a new grammar.
 
 As this implementation is not adhesive to the ABNF grammar of the ABNF grammar as defined in RFC 5234, updated by RFC 7405 and fixed by Erratum 2968 and 3076, it enables genericity.
-This imply that for any valid grammar in ABNF that is properly lexed, if you can write a lexer for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual decomposition of the ABNF grammar, reviewed multiple times.
+This imply that for any valid grammar in ABNF that is properly evaluated, if you can write an evaluator for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual parsing and evaluation of the ABNF grammar, reviewed multiple times.
 
 <div align="center">
 	<img src="res/grammar.excalidraw.png" width="800px">
