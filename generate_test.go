@@ -88,10 +88,11 @@ func Test_U_Generate(t *testing.T) {
 			out, err := tt.Grammar.Generate(tt.Seed, tt.Rulename, WithRepMax(4), WithThreshold(64))
 			if tt.ExpectErr {
 				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
+				return
 			}
+
 			require.NotEmpty(t, out)
+			require.NoError(t, err)
 		})
 	}
 }
