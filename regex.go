@@ -116,8 +116,7 @@ func (e ElemNumVal) regex(g *Grammar) (string, error) {
 	case StatSeries:
 		for _, s := range e.Elems {
 			bts := numvalToRune(s, e.Base)
-			rs := []rune(string(bts))
-			for _, r := range rs {
+			for _, r := range string(bts) {
 				reg += regescape(r)
 			}
 		}
