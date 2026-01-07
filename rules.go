@@ -69,7 +69,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'0'},
+								Values:    []rune{'0'},
 							},
 						},
 					},
@@ -80,7 +80,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'1'},
+								Values:    []rune{'1'},
 							},
 						},
 					},
@@ -259,7 +259,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'A'},
+								Values:    []rune{'A'},
 							},
 						},
 					},
@@ -270,7 +270,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'B'},
+								Values:    []rune{'B'},
 							},
 						},
 					},
@@ -281,7 +281,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'C'},
+								Values:    []rune{'C'},
 							},
 						},
 					},
@@ -292,7 +292,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'D'},
+								Values:    []rune{'D'},
 							},
 						},
 					},
@@ -303,7 +303,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'E'},
+								Values:    []rune{'E'},
 							},
 						},
 					},
@@ -314,7 +314,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'F'},
+								Values:    []rune{'F'},
 							},
 						},
 					},
@@ -660,7 +660,7 @@ var (
 													Max: 1,
 													Element: ElemCharVal{
 														Sensitive: false,
-														Values:    []byte{'-'},
+														Values:    []rune{'-'},
 													},
 												},
 											},
@@ -700,7 +700,7 @@ var (
 													Max: 1,
 													Element: ElemCharVal{
 														Sensitive: false,
-														Values:    []byte{'='},
+														Values:    []rune{'='},
 													},
 												},
 											},
@@ -711,7 +711,7 @@ var (
 													Max: 1,
 													Element: ElemCharVal{
 														Sensitive: false,
-														Values:    []byte{'=', '/'},
+														Values:    []rune{'=', '/'},
 													},
 												},
 											},
@@ -846,7 +846,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{';'},
+								Values:    []rune{';'},
 							},
 						},
 						{
@@ -927,7 +927,7 @@ var (
 													Max: 1,
 													Element: ElemCharVal{
 														Sensitive: false,
-														Values:    []byte{'/'},
+														Values:    []rune{'/'},
 													},
 												},
 												{
@@ -1080,7 +1080,7 @@ var (
 													Max: 1,
 													Element: ElemCharVal{
 														Sensitive: false,
-														Values:    []byte{'*'},
+														Values:    []rune{'*'},
 													},
 												},
 												{
@@ -1187,7 +1187,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'('},
+								Values:    []rune{'('},
 							},
 						},
 						{
@@ -1216,7 +1216,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{')'},
+								Values:    []rune{')'},
 							},
 						},
 					},
@@ -1236,7 +1236,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'['},
+								Values:    []rune{'['},
 							},
 						},
 						{
@@ -1265,7 +1265,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{']'},
+								Values:    []rune{']'},
 							},
 						},
 					},
@@ -1323,7 +1323,7 @@ var (
 													Max: 1,
 													Element: ElemCharVal{
 														Sensitive: false,
-														Values:    []byte{'%', 'i'},
+														Values:    []rune{'%', 'i'},
 													},
 												},
 											},
@@ -1355,7 +1355,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'%', 's'},
+								Values:    []rune{'%', 's'},
 							},
 						}, {
 							Min: 1,
@@ -1440,7 +1440,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'%'},
+								Values:    []rune{'%'},
 							},
 						},
 						{
@@ -1503,7 +1503,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'b'},
+								Values:    []rune{'b'},
 							},
 						},
 						{
@@ -1534,7 +1534,7 @@ var (
 																			Max: 1,
 																			Element: ElemCharVal{
 																				Sensitive: false,
-																				Values:    []byte{'.'},
+																				Values:    []rune{'.'},
 																			},
 																		},
 																		{
@@ -1567,7 +1567,7 @@ var (
 																			Max: 1,
 																			Element: ElemCharVal{
 																				Sensitive: false,
-																				Values:    []byte{'-'},
+																				Values:    []rune{'-'},
 																			},
 																		},
 																		{
@@ -1606,7 +1606,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'d'},
+								Values:    []rune{'d'},
 							},
 						},
 						{
@@ -1637,7 +1637,7 @@ var (
 																			Max: 1,
 																			Element: ElemCharVal{
 																				Sensitive: false,
-																				Values:    []byte{'.'},
+																				Values:    []rune{'.'},
 																			},
 																		},
 																		{
@@ -1670,7 +1670,7 @@ var (
 																			Max: 1,
 																			Element: ElemCharVal{
 																				Sensitive: false,
-																				Values:    []byte{'-'},
+																				Values:    []rune{'-'},
 																			},
 																		},
 																		{
@@ -1709,7 +1709,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'x'},
+								Values:    []rune{'x'},
 							},
 						},
 						{
@@ -1740,7 +1740,7 @@ var (
 																			Max: 1,
 																			Element: ElemCharVal{
 																				Sensitive: false,
-																				Values:    []byte{'.'},
+																				Values:    []rune{'.'},
 																			},
 																		},
 																		{
@@ -1773,7 +1773,7 @@ var (
 																			Max: 1,
 																			Element: ElemCharVal{
 																				Sensitive: false,
-																				Values:    []byte{'-'},
+																				Values:    []rune{'-'},
 																			},
 																		},
 																		{
@@ -1812,7 +1812,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'<'},
+								Values:    []rune{'<'},
 							},
 						},
 						{
@@ -1856,7 +1856,7 @@ var (
 							Max: 1,
 							Element: ElemCharVal{
 								Sensitive: false,
-								Values:    []byte{'>'},
+								Values:    []rune{'>'},
 							},
 						},
 					},

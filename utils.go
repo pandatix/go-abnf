@@ -1,64 +1,51 @@
 package goabnf
 
-import "strings"
+import (
+	"strings"
+)
 
-// atob converts str to byte given the base.
-func atob(str, base string) byte {
+// numvalToRune converts a numeric value given its base into the corresponding rune.
+func numvalToRune(str, base string) rune {
+	if err := checkBounds(str, base); err != nil {
+		panic(err)
+	}
+	return rune(numvalToInt32(str, base))
+}
+
+func numvalToInt32(str, base string) (out int32) {
+	if err := checkBounds(str, base); err != nil {
+		panic(err)
+	}
+
+	str = strings.TrimLeft(str, "0")
 	switch base {
 	case "B", "b":
-		return bintob(str)
+		out = binToInt32(str)
+
 	case "D", "d":
-		return dectob(str)
+		out = decToInt32(str)
+
 	case "X", "x":
-		return hextob(str)
+		out = hexToInt32(str)
 	}
-	// This won't get hit as the ABNF grammar defines only the
-	// previous bases.
-	panic("invalid base")
+	return
 }
 
-func bintob(str string) byte {
-	str = strings.TrimLeft(str, "0")
-
-	if len(str) > 8 { // 8 = ceil(log(base, 2^|us-ascii|)), base=2
-		panic(&ErrTooLargeNumeral{
-			Base:  "b",
-			Value: str,
-		})
-	}
-	out := 0
+func binToInt32(str string) (out int32) {
 	for i := 0; i < len(str); i++ {
-		c := str[i]
 		cv := 0
-		switch c {
-		case '0':
-			cv = 0
-		case '1':
+		if str[i] == '1' {
 			cv = 1
-		default:
-			panic("invalid bit: " + string(c))
 		}
-		out += cv * pow(2, len(str)-i-1)
+		out += int32(cv * pow(2, len(str)-i-1))
 	}
-	return byte(out)
+	return
 }
 
-func dectob(str string) byte {
-	str = strings.TrimLeft(str, "0")
-
-	if len(str) > 3 || (len(str) == 3 && (str[0] == '1' && (str[1] > '2' || (str[1] == '2' && str[2] > '7')))) {
-		panic(&ErrTooLargeNumeral{
-			Base:  "d",
-			Value: str,
-		})
-	}
-	out := 0
+func decToInt32(str string) (out int32) {
 	for i := 0; i < len(str); i++ {
-		c := str[i]
 		cv := 0
-		switch c {
-		case '0':
-			cv = 0
+		switch str[i] {
 		case '1':
 			cv = 1
 		case '2':
@@ -77,30 +64,16 @@ func dectob(str string) byte {
 			cv = 8
 		case '9':
 			cv = 9
-		default:
-			panic("invalid dec: " + string(c))
 		}
-		out += cv * pow(10, len(str)-i-1)
+		out += int32(cv * pow(10, len(str)-i-1))
 	}
-	return byte(out)
+	return
 }
 
-func hextob(str string) byte {
-	str = strings.TrimLeft(str, "0")
-
-	if len(str) > 2 || (len(str) == 2 && str[0] > '7') { // 2 = ceil(log(base, 2^|us-ascii|)), base=16
-		panic(&ErrTooLargeNumeral{
-			Base:  "x",
-			Value: str,
-		})
-	}
-	out := 0
+func hexToInt32(str string) (out int32) {
 	for i := 0; i < len(str); i++ {
-		c := str[i]
 		cv := 0
-		switch c {
-		case '0':
-			cv = 0
+		switch str[i] {
 		case '1':
 			cv = 1
 		case '2':
@@ -131,128 +104,72 @@ func hextob(str string) byte {
 			cv = 14
 		case 'F', 'f':
 			cv = 15
-		default:
-			panic("invalid hex: " + string(c))
 		}
-		out += cv * pow(16, len(str)-i-1)
+		out += int32(cv * pow(16, len(str)-i-1))
 	}
-	return byte(out)
+	return
 }
 
-func btoa(b byte, base string) string {
-	switch base {
-	case "B", "b":
-		return btobin(b)
-	case "D", "d":
-		return btodec(b)
-	case "X", "x":
-		return btohex(b)
-	}
-	// This won't get hit as the ABNF grammar defines only
-	// the previous bases.
-	panic("invalid base")
-}
-
-func btobin(b byte) string {
-	out := ""
-	for b != 0 {
-		s := ""
-		switch b % 2 {
-		case 0:
-			s = "0"
-		case 1:
-			s = "1"
-		}
-		out = s + out
-		b /= 2
-	}
-	return strings.TrimLeft(out, "0")
-}
-
-func btodec(b byte) string {
-	out := ""
-	for b != 0 {
-		s := ""
-		switch b % 10 {
-		case 0:
-			s = "0"
-		case 1:
-			s = "1"
-		case 2:
-			s = "2"
-		case 3:
-			s = "3"
-		case 4:
-			s = "4"
-		case 5:
-			s = "5"
-		case 6:
-			s = "6"
-		case 7:
-			s = "7"
-		case 8:
-			s = "8"
-		case 9:
-			s = "9"
-		}
-		out = s + out
-		b /= 10
-	}
-	return strings.TrimLeft(out, "0")
-}
-
-func btohex(b byte) string {
-	out := ""
-	for b != 0 {
-		s := ""
-		switch b % 16 {
-		case 0x0:
-			s = "0"
-		case 0x1:
-			s = "1"
-		case 0x2:
-			s = "2"
-		case 0x3:
-			s = "3"
-		case 0x4:
-			s = "4"
-		case 0x5:
-			s = "5"
-		case 0x6:
-			s = "6"
-		case 0x7:
-			s = "7"
-		case 0x8:
-			s = "8"
-		case 0x9:
-			s = "9"
-		case 0xa:
-			s = "a"
-		case 0xb:
-			s = "b"
-		case 0xc:
-			s = "c"
-		case 0xd:
-			s = "d"
-		case 0xe:
-			s = "e"
-		case 0xf:
-			s = "f"
-		}
-		out = s + out
-		b /= 16
-	}
-	return strings.TrimLeft(out, "0")
-}
-
+// returns v^e
 func pow(v, e int) int {
 	if e == 0 {
 		return 1
 	}
+	result := v
 	for i := 1; i < e; i++ {
-		v *= v
+		result *= v
 	}
-	return v
+	return result
+}
+
+func checkBounds(str, base string) error {
+	str = strings.TrimLeft(str, "0")
+	switch base {
+	// Whatever the base, the higher value we arbitrary decide to support is
+	// the maximal Unicode character i.e. U+10FFFF.
+	//
+	// Every value (represented as integer) is then in interval [0;1_114_111].
+	// For each base, we can compute the number of characters of an acceptable
+	// num-val as ceil(log(base,1_114_111)).
+	//
+	// We also have to ensure that it does not go over the boundaries even if
+	// of an acceptable length, e.g., 0xFFFFFF is not.
+
+	case "B", "b":
+		// 21 = ceil(log(2, max_unicode))
+		// U+10FFFF = Ob100001111111111111111
+		if len(str) > 21 ||
+			(len(str) == 21 && (str[1] != '0' || str[2] != '0' || str[3] != '0' || str[4] != '0')) {
+			return &ErrTooLargeNumeral{
+				Base:  base,
+				Value: str,
+			}
+		}
+
+	case "D", "d":
+		// 7 = ceil(log(10, max_unicode))
+		// U+10FFFF = 0d1114111
+		if len(str) > 7 ||
+			(len(str) == 7 && (str[0] > '1' || (str[0] == '1' && (str[1] > '1' || (str[1] == '1' && (str[2] > '1' || (str[2] == '1' && (str[3] > '4' || (str[3] == '4' && (str[4] > '1' || (str[4] == '1' && (str[5] > '1' || (str[5] == '1' && str[6] > '1'))))))))))))) {
+			return &ErrTooLargeNumeral{
+				Base:  base,
+				Value: str,
+			}
+		}
+
+	case "X", "x":
+		// 6 = ceil(log(16, max_unicode))
+		// U+10FFFF = 0x10FFFF
+		if len(str) > 6 ||
+			(len(str) == 6 && (str[0] > '1' || (str[0] == '1' && (str[1] > '0')))) {
+			return &ErrTooLargeNumeral{
+				Base:  base,
+				Value: str,
+			}
+		}
+	}
+
+	return nil
 }
 
 // GetRule returns the rule by the given rulename, whether
@@ -273,18 +190,4 @@ func getRuleIn(rulename string, rulemap map[string]*Rule) *Rule {
 		}
 	}
 	return nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

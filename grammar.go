@@ -4,16 +4,17 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Grammar represents an ABNF grammar as defined by RFC 5234.
-// It is constituted of a set of rules with an unique name.
+// It is constituted of a set of rules with a unique name.
 type Grammar struct {
 	Rulemap map[string]*Rule
 }
 
 // IsValid checks there exist at least a path that completly consumes
-// input, hence is valide given this gramma and especially one of its
+// input, hence is valid given this grammar and especially one of its
 // rule.
 func (g *Grammar) IsValid(rulename string, input []byte) (bool, error) {
 	lt, err := g.IsLeftTerminating(rulename)
@@ -300,13 +301,20 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 		switch v.Status {
 		case StatRange:
 			// Any matches
-			min, max := atob(v.Elems[0], v.Base), atob(v.Elems[1], v.Base)
-			if min <= input[index] && input[index] <= max {
+			min, max := numvalToRune(v.Elems[0], v.Base), numvalToRune(v.Elems[1], v.Base)
+
+			r, size := utf8.DecodeRune(input[index:])
+			if r == utf8.RuneError && size == 1 {
+				// invalid UTF-8
+				return paths
+			}
+
+			if min <= r && r <= max {
 				paths = append(paths, &Path{
 					Subpaths:  nil,
 					MatchRule: "",
 					Start:     index,
-					End:       index + 1,
+					End:       index + size,
 				})
 			}
 
@@ -315,10 +323,19 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 			initialIndex := index
 			matches := true
 			for i := 0; i < len(v.Elems) && matches; i++ {
-				if atob(v.Elems[i], v.Base) != input[index] {
+				r := string(numvalToRune(v.Elems[i], v.Base))
+				rSize := len([]byte(r))
+
+				if index+rSize > len(input) {
+					matches = false
+					break // don't need to go further, it's too small for a match
+				}
+
+				punc := input[index : index+rSize]
+				if r != string(punc) {
 					matches = false
 				}
-				index++
+				index += rSize
 			}
 			if matches {
 				paths = append(paths, &Path{
@@ -337,8 +354,9 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 		initialIndex := index
 		matches := true
 		for i := 0; i < len(v.Values) && matches; i++ {
-			if sensequal(v.Values[i], input[index], v.Sensitive) {
-				index++
+			inAtI := []rune(string(input))[index]
+			if sensequal(v.Values[i], inAtI, v.Sensitive) {
+				index += len([]byte(string(inAtI)))
 			} else {
 				matches = false
 			}
@@ -355,16 +373,23 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 	return paths
 }
 
-func sensequal(target, actual byte, sensitive bool) bool {
+func sensequal(target, actual rune, sensitive bool) bool {
 	if !sensitive {
 		target, actual = strmin(target), strmin(actual)
 	}
 	return target == actual
 }
 
-func strmin(r byte) byte {
+func strmin(r rune) rune {
 	if r >= 'A' && r <= 'Z' {
 		return r - 'A' + 'a'
+	}
+	return r
+}
+
+func strmax(r rune) rune {
+	if r >= 'a' && r <= 'Z' {
+		return r - 'a' + 'A'
 	}
 	return r
 }
@@ -700,25 +725,20 @@ func (eval *evaluator) travel(input []byte, path *Path) (any, error) {
 		}, nil
 
 	case abnfCharVal.Name:
-		sensitive := false // by default insensitive (cf. RFC 7405)
-		if strings.EqualFold(path.Subpaths[0].MatchRule, abnfCaseSensitiveString.Name) {
-			sensitive = true
-		}
-
-		value := []byte{}
+		value := []rune{}
 		for _, sub := range path.Subpaths[0].Subpaths {
 			if strings.EqualFold(sub.MatchRule, abnfQuotedString.Name) {
 				// Skip if empty char-val
 				if len(sub.Subpaths) == 2 {
 					continue
 				}
-				value = input[sub.Subpaths[1].Start:sub.Subpaths[1].End]
+				value = []rune(string(input[sub.Subpaths[1].Start:sub.Subpaths[1].End]))
 				break
 			}
 		}
 
 		return ElemCharVal{
-			Sensitive: sensitive,
+			Sensitive: strings.EqualFold(path.Subpaths[0].MatchRule, abnfCaseSensitiveString.Name), // by default insensitive (cf. RFC 7405)
 			Values:    value,
 		}, nil
 
@@ -822,32 +842,8 @@ func semvalAlternation(alt Alternation) error {
 			// num-val base
 			case ElemNumVal:
 				for _, val := range elem.Elems {
-					val = strings.TrimLeft(val, "0")
-					switch elem.Base {
-					case "B", "b":
-						// 8 bits to fill a byte, reject more
-						if len(val) > 8 {
-							return &ErrTooLargeNumeral{
-								Base:  elem.Base,
-								Value: val,
-							}
-						}
-					case "D", "d":
-						// 3 = ceil(log(base, 2^8)), base=10, maximal value of 255 (included)
-						if len(val) > 3 || (len(val) == 3 && (val[0] > '2' || (val[0] == '2' && (val[1] > '5' || (val[1] == '5' && val[2] > '5'))))) {
-							return &ErrTooLargeNumeral{
-								Base:  elem.Base,
-								Value: val,
-							}
-						}
-					case "X", "x":
-						// 2 hex to fill a byte, reject more
-						if len(val) > 2 {
-							return &ErrTooLargeNumeral{
-								Base:  elem.Base,
-								Value: val,
-							}
-						}
+					if err := checkBounds(val, elem.Base); err != nil {
+						return err
 					}
 				}
 
@@ -856,6 +852,7 @@ func semvalAlternation(alt Alternation) error {
 				if err := semvalAlternation(elem.Alternation); err != nil {
 					return err
 				}
+
 			case ElemOption:
 				if err := semvalAlternation(elem.Alternation); err != nil {
 					return err

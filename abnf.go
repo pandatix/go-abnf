@@ -14,7 +14,7 @@ import (
 // - ElemNumVal
 // - ElemCharVal
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemItf interface {
 	fmt.Stringer
 
@@ -23,7 +23,7 @@ type ElemItf interface {
 
 // Rule represents an ABNF rule, with its name and underlying alternation.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type Rule struct {
 	// Name is the unique rule name.
 	// Notice it is case-insensitive according to RFC 5234 Section 2.1.
@@ -38,7 +38,7 @@ func (rl Rule) String() string {
 
 // Alternation represents an ABNF alternation object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type Alternation struct {
 	// Concatenations contains the variants that validate the upper
 	// object (i.e. rule, group or option).
@@ -55,7 +55,7 @@ func (alt Alternation) String() string {
 
 // Concatenation represents an ABNF concatenation object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type Concatenation struct {
 	// Repetitions contains the following repetitions, order matter.
 	Repetitions []Repetition
@@ -71,7 +71,7 @@ func (cnt Concatenation) String() string {
 
 // Repetition represents an ABNF repetition object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type Repetition struct {
 	Min, Max int
 	Element  ElemItf
@@ -97,7 +97,7 @@ func (rep Repetition) String() string {
 
 // ElemRulename represents an ABNF rulename object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemRulename struct {
 	// Name is the unique rule name.
 	// Notice it is case-insensitive according to RFC 5234 Section 2.1.
@@ -113,7 +113,7 @@ var _ ElemItf = (*ElemRulename)(nil)
 // ElemGroup represents an ABNF group object.
 // It will be straightly passed through with its underlying alternation.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemGroup struct {
 	Alternation Alternation
 }
@@ -127,7 +127,7 @@ var _ ElemItf = (*ElemGroup)(nil)
 // ElemOption represents an ABNF option object.
 // It will be straightly converted to a 0*1 repetition.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemOption struct {
 	Alternation Alternation
 }
@@ -140,11 +140,12 @@ var _ ElemItf = (*ElemOption)(nil)
 
 // ElemCharVal represents an ABNF char-val object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemCharVal struct {
-	// Sensitive is by default false, support clarrified by RFC 7405.
+	// Sensitive is by default false, support clarrified by RFC 7405 hence
+	// only works on a-z and A-Z.
 	Sensitive bool
-	Values    []byte
+	Values    []rune
 }
 
 func (ecvl ElemCharVal) String() string {
@@ -159,7 +160,7 @@ var _ ElemItf = (*ElemCharVal)(nil)
 
 // ElemNumVal represents an ABNF num-val object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemNumVal struct {
 	Base string
 	// Status could be:
@@ -187,7 +188,7 @@ var _ ElemItf = (*ElemNumVal)(nil)
 
 // ElemProseVal represents an ABNF prose-val object.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type ElemProseVal struct {
 	values []string
 }
@@ -204,7 +205,7 @@ var _ ElemItf = (*ElemProseVal)(nil)
 
 // Status defines the type of a num-val, rather StatSeries or StatRange.
 //
-// This is exposed for custom lexing purposes, please don't use it else.
+// This is exposed for custom evaluation purposes, please don't use it else.
 type Status int
 
 const (
@@ -214,7 +215,7 @@ const (
 	StatRange
 )
 
-// ABNF is the manually parsed+lexed+validated ABNF grammar.
+// ABNF is the manually parsed+evaluated+validated ABNF grammar.
 var ABNF = &Grammar{
 	Rulemap: map[string]*Rule{
 		abnfRulelist.Name:              abnfRulelist,

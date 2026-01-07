@@ -3,7 +3,7 @@ package goabnf
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 var testsGenerate = map[string]struct {
@@ -66,6 +66,17 @@ var testsGenerate = map[string]struct {
 		Rulename:  "rulelist",
 		ExpectErr: false,
 	},
+	"non-ascii": {
+		// This test case covers the case where a num-val produces a non-ASCII
+		// value, thus has a big value.
+		// It comes from #105 and is especially extracted from the TOML official
+		// ABNF grammar (https://github.com/toml-lang/toml/blob/1.0.0/toml.abnf)
+		// It has slightly be modified to make sure whatever the seed it generates
+		// a >1 byte value.
+		Grammar:   mustGrammar("non-ascii = %xE000-10FFFF\r\n"),
+		Rulename:  "non-ascii",
+		ExpectErr: false, // we don't expect an error, just a large byte content
+	},
 }
 
 func Test_U_Generate(t *testing.T) {
@@ -73,19 +84,15 @@ func Test_U_Generate(t *testing.T) {
 
 	for testname, tt := range testsGenerate {
 		t.Run(testname, func(t *testing.T) {
-			assert := assert.New(t)
-
 			// Generate a random output for a given rule
 			out, err := tt.Grammar.Generate(tt.Seed, tt.Rulename, WithRepMax(4), WithThreshold(64))
 			if tt.ExpectErr {
-				assert.NotNil(err)
+				require.Error(t, err)
 				return
-			} else {
-				if !assert.Nil(err) {
-					return
-				}
 			}
-			assert.NotEmpty(out)
+
+			require.NotEmpty(t, out)
+			require.NoError(t, err)
 		})
 	}
 }

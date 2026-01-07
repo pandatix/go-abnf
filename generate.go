@@ -1,8 +1,8 @@
 package goabnf
 
 import (
-	"bytes"
 	"errors"
+	"maps"
 	"math/rand"
 	"strings"
 )
@@ -69,19 +69,20 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 			case ElemNumVal:
 				switch elem.Status {
 				case StatRange:
-					min, max := atob(elem.Elems[0], elem.Base), atob(elem.Elems[1], elem.Base)
-					appendPtr(out, min+byte(rand.Int63())%(max-min+1))
+					min, max := numvalToRune(elem.Elems[0], elem.Base), numvalToRune(elem.Elems[1], elem.Base)
+					r := min + (rune(rand.Int63()&0x0F) % (max - min + 1)) // mask 0x0F to keep the 32-bit part (rune size)
+					appendPtr(out, r)
 
 				case StatSeries:
 					for _, v := range elem.Elems {
-						appendPtr(out, atob(v, elem.Base))
+						appendPtr(out, numvalToRune(v, elem.Base))
 					}
 				}
 
 			case ElemCharVal:
 				for _, val := range elem.Values {
 					if !elem.Sensitive && (int(rand.Int63())%2) == 0 {
-						val = bytes.ToUpper([]byte{val})[0]
+						val = strmax(val)
 					}
 					appendPtr(out, val)
 				}
@@ -92,9 +93,9 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 	}
 }
 
-func appendPtr(slc *[]byte, v ...byte) {
+func appendPtr(slc *[]byte, v ...rune) {
 	b := *slc
-	b = append(b, v...)
+	b = append(b, []byte(string(v))...)
 	*slc = b
 }
 
@@ -196,7 +197,7 @@ func checkCanGenerateSafelyConcat(g *Grammar, knownRules map[string]struct{}, co
 			// Copy rules to only focus on rules that made use come here.
 			// If shared with others, the dependency graph can lead to the same rule
 			// from another path without it being a cycle, thus must be handled.
-			scopeRules := cpMap(knownRules)
+			scopeRules := duplicateMap(knownRules)
 			for known := range scopeRules {
 				if strings.EqualFold(elem.Name, known) {
 					return &ErrCyclicRule{
@@ -231,10 +232,8 @@ func checkCanGenerateSafelyConcat(g *Grammar, knownRules map[string]struct{}, co
 	return nil
 }
 
-func cpMap[T comparable, V any](m map[T]V) map[T]V {
+func duplicateMap[T comparable, V any](m map[T]V) map[T]V {
 	n := make(map[T]V, len(m))
-	for k, v := range m {
-		n[k] = v
-	}
+	maps.Copy(n, m)
 	return n
 }

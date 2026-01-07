@@ -204,10 +204,10 @@ type threadTuple struct {
 
 	// terminal node position counter (used for charval/numval)
 	// for charvals it is used as a mask to know whether to lower or upper a char
-	tpos int
+	tpos int32
 
 	// total possible variations (used for charval/numval)
-	vtotal int
+	vtotal int32
 
 	// justCut defines if the previous iteration was a cut over the thread
 	// for later iterations.
@@ -277,11 +277,11 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 	isLast := len(node.Nexts) == 0
 	isEndpoint := slices.Contains(tgr.tg.Endpoints, node)
 	isFullyVariated := false
-	tpos := 0
+	tpos := int32(0)
 	if isInThread {
 		tpos = tgr.thread[threadIndex].tpos
 	}
-	vtotal := 0
+	vtotal := int32(0)
 
 	// Produce this node content
 	switch v := node.Elem.(type) {
@@ -289,13 +289,15 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 		prod = make([]byte, 0, len(v.Values))
 		if v.Sensitive {
 			// Produce this whole char value, no need to variate anything
-			prod = append(prod, v.Values...)
+			for _, val := range v.Values {
+				prod = append(prod, string(val)...)
+			}
 			vtotal++ // still count it else we won't know we "variated" it
 		} else {
 			// Copy each one and make it case-variant if necessary
-			for i, c := range v.Values {
-				isLower := c >= 'a' && c <= 'z'
-				isUpper := c >= 'A' && c <= 'Z'
+			for i, r := range v.Values {
+				isLower := r >= 'a' && r <= 'z'
+				isUpper := r >= 'A' && r <= 'Z'
 				variate := isLower || isUpper
 
 				// Count all possible variations
@@ -306,45 +308,50 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 
 				// Write down
 				if !variate {
-					prod = append(prod, c)
+					prod = append(prod, string(r)...)
 				} else {
 					// Compute lower and upper variants
-					lower := c
+					lower := r
 					if isUpper {
 						lower = lower - 'A' + 'a'
 					}
-					upper := c
+					upper := r
 					if isLower {
 						upper = upper - 'a' + 'A'
 					}
 
 					// Append the good one in its spot
 					if (tpos>>i)%2 == 1 {
-						prod = append(prod, upper)
+						prod = append(prod, string(upper)...)
 					} else {
-						prod = append(prod, lower)
+						prod = append(prod, string(lower)...)
 					}
 				}
 			}
 		}
 
 	case ElemNumVal:
-		prod = make([]byte, 0, len(v.Elems))
+		// We can't easily determine the number of bytes this numval will use,
+		// at least len(v.Elems), at most 4*len(v.Elems) as Unicode code points can
+		// take up to 4 bytes.
+
 		switch v.Status {
 		case StatSeries:
 			for _, elem := range v.Elems {
-				prod = append(prod, atob(elem, v.Base))
+				r := numvalToRune(elem, v.Base)
+				prod = append(prod, []byte(string(r))...)
 			}
 			vtotal++ // still count it else we won't know we "variated" it
 
 		case StatRange:
-			min, max := atob(v.Elems[0], v.Base), atob(v.Elems[1], v.Base)
-			dst := int(max) - int(min) + 1
+			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
+			dst := max - min + 1
 
 			vtotal += dst // range of possibilities
 
 			// Iteratively select one by one
-			prod = append(prod, byte(int(min)+tpos))
+			r := rune(min + tpos)
+			prod = append(prod, []byte(string(r))...)
 		}
 
 	default:
@@ -817,15 +824,15 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 
 		var prevs []*Node = nil
 		var curr []*Node = nil
-		for _, b := range v.Values {
-			isLower := b >= 'a' && b <= 'z'
-			isUpper := b >= 'A' && b <= 'Z'
+		for _, r := range v.Values {
+			isLower := r >= 'a' && r <= 'z'
+			isUpper := r >= 'A' && r <= 'Z'
 			requireBoth := (isLower || isUpper) && !v.Sensitive
 
 			if !requireBoth {
 				n := newNode(ElemCharVal{
 					Sensitive: true,
-					Values:    []byte{b},
+					Values:    []rune{r},
 				})
 				curr = []*Node{n}
 
@@ -837,22 +844,22 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 				}
 				prevs = []*Node{n}
 			} else {
-				nlv := b
+				nlv := r
 				if isUpper {
-					nlv = b - 'A' + 'a'
+					nlv = strmin(nlv)
 				}
-				nuv := b
+				nuv := r
 				if isLower {
-					nuv = b - 'a' + 'A'
+					nuv = strmax(nuv)
 				}
 
 				nl := newNode(ElemCharVal{
 					Sensitive: true,
-					Values:    []byte{nlv},
+					Values:    []rune{nlv},
 				})
 				nu := newNode(ElemCharVal{
 					Sensitive: true,
-					Values:    []byte{nuv},
+					Values:    []rune{nuv},
 				})
 				curr = []*Node{nl, nu}
 
@@ -877,14 +884,12 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 		}
 		switch v.Status {
 		case StatRange:
-			min, max := atob(v.Elems[0], v.Base), atob(v.Elems[1], v.Base)
-			for b := min; b <= max; b++ {
-				s := btoa(b, v.Base)
-
+			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
+			for i := min; i <= max; i++ {
 				n := newNode(ElemNumVal{
 					Base:   v.Base,
 					Status: StatSeries,
-					Elems:  []string{s},
+					Elems:  []string{string(rune(i))},
 				})
 				entrypoints = append(entrypoints, n)
 				endpoints = append(endpoints, n)

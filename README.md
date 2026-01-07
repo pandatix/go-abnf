@@ -18,16 +18,17 @@ It implements RFC 5234 and 7405, with Errata 2968 and 3076.
 Capabilities:
  - [X] parse ABNF (to manipulable datastructure ; with cycle detection)
  - [X] compile ABNF to regex
- - [ ] create a minimal set of tests that covers the full grammar
+ - [X] create a minimal set of tests that covers the full grammar
  - [X] generate a visual representation of the ABNF grammar provided (mermaid)
  - [X] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
+ - [X] support Unicode rather than UTF-8
 
 ## How it works
 
-Under the hood, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be lexed in order to produce a new grammar.
+Under the hood, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be evaluated in order to produce a new grammar.
 
 As this implementation is not adhesive to the ABNF grammar of the ABNF grammar as defined in RFC 5234, updated by RFC 7405 and fixed by Erratum 2968 and 3076, it enables genericity.
-This imply that for any valid grammar in ABNF that is properly lexed, if you can write a lexer for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual decomposition of the ABNF grammar, reviewed multiple times.
+This imply that for any valid grammar in ABNF that is properly evaluated, if you can write an evaluator for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual parsing and evaluation of the ABNF grammar, reviewed multiple times.
 
 <div align="center">
 	<img src="res/grammar.excalidraw.png" width="800px">
@@ -88,4 +89,4 @@ func FuzzFunction(f *testing.F) {
 
 **Q**: Is there a difference between pap and [bap](https://github.com/ietf-tools/bap) ?
 
-**R**: Yes, first of all the language (i.e. Go) enables more portability thus integration in workflows. But the real difference between pap and bap resides is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, pap goes further as it enables you to build the transition graph from a given grammar and fuzz Go code.
+**R**: Yes, first of all the language (i.e. Go) enables **more portability thus integration in workflows**. But the real difference between pap and bap resides is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, pap goes further as it enables you to **build the transition graph** from a given grammar and fuzz Go code, but also **support Unicode code points** that might be usefull (e.g., [TOML is specified in ABNF](https://github.com/toml-lang/toml/blob/main/toml.abnf))
