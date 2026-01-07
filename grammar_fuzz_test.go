@@ -50,6 +50,9 @@ var fuzzRegex_eaa469604868c87fAbnf []byte
 //go:embed testdata/redefine.abnf
 var redefineAbnf []byte
 
+//go:embed testdata/toml.abnf
+var tomlAbnf []byte
+
 var testsParseAbnf = map[string]struct {
 	Input     []byte
 	Validate  bool
@@ -163,32 +166,32 @@ var testsParseAbnf = map[string]struct {
 		ExpectErr: false,
 	},
 	"binary-maximal": {
-		Input:     []byte("a = %b00000000-11111111\r\n"),
+		Input:     []byte("a = %b0-100001111111111111111\r\n"),
 		Validate:  true,
 		ExpectErr: false,
 	},
 	"binary-out": {
-		Input:     []byte("a = %b0000000000000-111111110\r\n"),
+		Input:     []byte("a = %b0-100010000000000000000\r\n"),
 		Validate:  true,
 		ExpectErr: true,
 	},
 	"decimal-maximal": {
-		Input:     []byte("a = %d000-255\r\n"),
+		Input:     []byte("a = %d0-1114111\r\n"),
 		Validate:  true,
 		ExpectErr: false,
 	},
 	"decimal-out": {
-		Input:     []byte("a = %d000000-256\r\n"),
+		Input:     []byte("a = %d0-1114112\r\n"),
 		Validate:  true,
 		ExpectErr: true,
 	},
 	"hexadecimal-maximal": {
-		Input:     []byte("a = %x00-0FF\r\n"),
+		Input:     []byte("a = %x0-10FFFF\r\n"),
 		Validate:  true,
 		ExpectErr: false,
 	},
 	"hexadecimal-out": {
-		Input:     []byte("a = %x000-FF0\r\n"),
+		Input:     []byte("a = %x0-110000\r\n"),
 		Validate:  true,
 		ExpectErr: true,
 	},
@@ -201,6 +204,15 @@ var testsParseAbnf = map[string]struct {
 	"redefine-granted": {
 		Input:     redefineAbnf,
 		Redefine:  true,
+		ExpectErr: false,
+	},
+	"toml": {
+		// Issue #105 shows the implementation did not cover large enough values.
+		// num-values were generated over a single byte, which made it impossible
+		// to handle unicode characters, e.g., emojis.
+		Input:     tomlAbnf,
+		Redefine:  true, // at the end ABNF core rules are reproduced
+		Validate:  true, // should be valid
 		ExpectErr: false,
 	},
 }

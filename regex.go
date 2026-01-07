@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -104,17 +105,21 @@ func (e ElemProseVal) regex(g *Grammar) (string, error) {
 }
 
 func (e ElemNumVal) regex(g *Grammar) (string, error) {
+	// XXX what if the chars are out of printable characters ? (still in unicode)
+
 	reg := ""
 	switch e.Status {
 	case StatRange:
-		min, max := atob(e.Elems[0], e.Base), atob(e.Elems[1], e.Base)
-		for i := min; i <= max; i++ {
-			reg += regescape(i)
-		}
+		min, max := numvalToInt32(e.Elems[0], e.Base), numvalToInt32(e.Elems[1], e.Base)
+		reg += regescape(rune(min)) + "-" + regescape(rune(max))
 
 	case StatSeries:
-		for _, b := range e.Elems {
-			reg += regescape(atob(b, e.Base))
+		for _, s := range e.Elems {
+			bts := numvalToRune(s, e.Base)
+			rs := []rune(string(bts))
+			for _, r := range rs {
+				reg += regescape(r)
+			}
 		}
 	}
 	return "[" + reg + "]", nil
@@ -128,13 +133,6 @@ func (e ElemCharVal) regex(g *Grammar) (string, error) {
 	return str, nil
 }
 
-func regescape(b byte) string {
-	s := string(b)
-	// If common character, don't escape
-	if (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z') || (b >= '0' && b <= '9') {
-		return s
-
-	}
-	// Else escape by default, should fit the Go regex compiler
-	return "\\" + s
+func regescape(r rune) string {
+	return regexp.QuoteMeta(string(r))
 }

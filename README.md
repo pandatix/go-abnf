@@ -18,9 +18,10 @@ It implements RFC 5234 and 7405, with Errata 2968 and 3076.
 Capabilities:
  - [X] parse ABNF (to manipulable datastructure ; with cycle detection)
  - [X] compile ABNF to regex
- - [ ] create a minimal set of tests that covers the full grammar
+ - [X] create a minimal set of tests that covers the full grammar
  - [X] generate a visual representation of the ABNF grammar provided (mermaid)
  - [X] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
+ - [ ] support Unicode rather than UTF-8
 
 ## How it works
 
