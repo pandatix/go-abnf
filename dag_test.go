@@ -173,6 +173,13 @@ func Test_U_IsLeftTerminating(t *testing.T) {
 			ExpectedRes: true,
 			ExpectErr:   false,
 		},
+		"Issue 183": {
+			// From https://github.com/pandatix/go-abnf/issues/183
+			Grammar:     mustGrammar("a = b / c\r\nb = d\r\nc = d\r\nd = \"_\"\r\n"),
+			Rulename:    "a",
+			ExpectedRes: true,
+			ExpectErr:   false,
+		},
 	}
 
 	for testname, tt := range tests {
