@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '**'
+  workflow_dispatch: {}
 
 permissions: read-all
 
