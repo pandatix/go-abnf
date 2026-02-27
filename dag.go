@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -180,7 +181,7 @@ func isElemLeftTerminating(g *Grammar, stack map[string]*Rule, elem ElemItf) boo
 		}
 		rule := GetRule(v.Name, g.Rulemap)
 		stack[v.Name] = rule
-		return isAltLeftTerminating(g, stack, rule.Alternation)
+		return isAltLeftTerminating(g, maps.Clone(stack), rule.Alternation)
 	case ElemOption:
 		return isAltLeftTerminating(g, stack, v.Alternation)
 	case ElemGroup:

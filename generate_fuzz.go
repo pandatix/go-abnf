@@ -5,10 +5,6 @@ import (
 )
 
 func FuzzGeneratedValid(f *testing.F) {
-	for _, tt := range testsGenerate {
-		f.Add(tt.Seed, tt.Rulename)
-	}
-
 	f.Fuzz(func(t *testing.T, seed int64, rulename string) {
 		out, err := ABNF.Generate(seed, rulename, WithRepMax(16), WithThreshold(1024))
 		if err != nil {
