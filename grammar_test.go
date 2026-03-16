@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 //go:embed testdata/void.abnf
@@ -224,9 +225,7 @@ func Test_U_ParseABNF(t *testing.T) {
 
 	for testname, tt := range testsParseAbnf {
 		t.Run(testname, func(t *testing.T) {
-			assert := assert.New(t)
-
-			assert.NotEmpty(tt.Input)
+			require.NotEmpty(t, tt.Input)
 			g, err := ParseABNF(tt.Input,
 				WithValidation(tt.Validate),
 				WithRedefineCoreRules(tt.Redefine),
@@ -243,16 +242,12 @@ func Test_U_ParseABNF(t *testing.T) {
 func Test_U_ABNFParseItself(t *testing.T) {
 	t.Parallel()
 
-	assert := assert.New(t)
-
 	// Test the hardcoded ABNF is:
 	// - valid (string method works)
 	// - complete (ABNF representation of ABNF can be parsed by ABNF)
 	hardcoded := ABNF.String()
 	g, err := ParseABNF([]byte(hardcoded))
-	if !assert.Nil(err) {
-		t.FailNow()
-	}
+	require.NoError(t, err)
 
 	// Test the generated ABNF from the hardcoded ABNF is also:
 	// - valid (string method works)
@@ -260,15 +255,15 @@ func Test_U_ABNFParseItself(t *testing.T) {
 	// (1a) with the hardcoded ABNF grammar
 	fresh := g.String()
 	ng, err := ParseABNF([]byte(fresh))
-	assert.Equal(g, ng)
-	assert.Nil(err)
+	assert.Equal(t, g, ng)
+	assert.Nil(t, err)
 
-	assert.Equal(ABNF, ng)
+	assert.Equal(t, ABNF, ng)
 
 	// 1b (with the freshly produced ABNF grammar)
 	sol, err := Parse([]byte(fresh), g, "rulelist")
-	assert.NotNil(sol)
-	assert.Nil(err)
+	assert.NotNil(t, sol)
+	assert.Nil(t, err)
 }
 
 func Test_U_ParseRootNonGroup(t *testing.T) {
@@ -299,29 +294,64 @@ func Test_U_ParseRootNonGroup(t *testing.T) {
 }
 
 func Test_U_ParseEmptyCharVal(t *testing.T) {
-	// Issue #... use case is to parse an empty char-val.
+	// Issue #103 use case is to parse an empty char-val.
 	// In that situation the evaluator would extract a non-empty character
 	// leading post-processing operations inadequate.
-	assert := assert.New(t)
-
 	{
 		g, err := ParseABNF([]byte("a=\"\"\r\n"))
-		if !assert.Nil(err) {
-			return
-		}
+		require.NoError(t, err)
 
 		a := g.Rulemap["a"]
-		assert.Empty(a.Alternation.Concatenations[0].Repetitions[0].Element.(ElemCharVal).Values)
+		assert.Empty(t, a.Alternation.Concatenations[0].Repetitions[0].Element.(ElemCharVal).Values)
 	}
 
 	{
 		g, err := ParseABNF([]byte("a=\"abc\"\r\n"))
-		if !assert.Nil(err) {
-			return
-		}
+		require.NoError(t, err)
 
 		a := g.Rulemap["a"]
 		bs := a.Alternation.Concatenations[0].Repetitions[0].Element.(ElemCharVal).Values
-		assert.Equal("abc", string(bs))
+		assert.Equal(t, "abc", string(bs))
+	}
+}
+
+var (
+	//go:embed testdata/issue189.abnf
+	issue189 []byte
+)
+
+func Test_U_ParseEndingRepeat0(t *testing.T) {
+	// Issue #189 use case is to parse a value that is already fully consumed
+	// by a grammar, but have remaining 0*n repeated elements.
+	// The [1*elem] works while its equivalent 0*elem does not.
+
+	// A minimal reproducibility grammar and input, for debug purposes
+	{
+		g, err := ParseABNF([]byte("root = foo\r\nfoo  = 1*ALPHA *\"=\"\r\n"))
+		require.NoError(t, err)
+
+		const (
+			rule  = "root"
+			input = "abc"
+		)
+
+		path, err := Parse([]byte(input), g, rule)
+		assert.NotEmpty(t, path)
+		assert.NoError(t, err)
+	}
+
+	// The issue's content, for replicability purposes
+	{
+		g, err := ParseABNF(issue189)
+		require.NoError(t, err)
+
+		const (
+			rule  = "root"
+			input = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.Q70dVMtrOQzEFmGOxPAKbNOUSQMISCLhEDfGpMG0WM4"
+		)
+
+		path, err := Parse([]byte(input), g, rule)
+		assert.NotEmpty(t, path)
+		assert.NoError(t, err)
 	}
 }

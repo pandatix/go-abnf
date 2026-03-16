@@ -1,7 +1,6 @@
 package goabnf
 
 import (
-	"bytes"
 	"regexp"
 	"testing"
 )
@@ -9,8 +8,6 @@ import (
 func FuzzRegex(f *testing.F) {
 	f.Fuzz(func(t *testing.T, seed int64, rulename string) {
 		input, _ := ABNF.Generate(seed, "rulelist")
-		t.Logf("seed: %d", seed)
-		t.Logf("input: %s", bytes.ReplaceAll(input, []byte{'\r', '\n'}, []byte{'\n'}))
 		g, err := ParseABNF(input)
 		if err != nil {
 			return
