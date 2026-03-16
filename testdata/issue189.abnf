@@ -1,0 +1,13 @@
+root=Authorization
+Authorization=credentials
+credentials=auth-scheme [1*SP (token68/[auth-param *(OWS "," OWS auth-param)])]
+auth-scheme=token
+token=1*tchar
+tchar="!"/"#"/"$"/"%"/"&"/"'"/"*"/"+"/"-"/"."/"^"/"_"/"`"/"|"/"~"/DIGIT/ALPHA
+token68=1*(ALPHA/DIGIT/"-"/"."/"_"/"~"/"+"/"/") *"="
+auth-param=token BWS "=" BWS (token/quoted-string)
+BWS=OWS
+OWS=*(SP/HTAB)
+quoted-string=DQUOTE *(qdtext/quoted-pair) DQUOTE
+qdtext=HTAB/SP/%x21/%x23-5B/%x5D-7E
+quoted-pair="\" (HTAB/SP/VCHAR)

@@ -214,9 +214,28 @@ func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Pat
 }
 
 func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path {
+	outpaths := []*Path{}
+
+	// If the empty solution if possible, keep track of it
+	if rep.Min == 0 {
+		outpaths = append(outpaths, &Path{
+			Subpaths: []*Path{
+				{
+					Subpaths:  nil,
+					MatchRule: "",
+					Start:     index,
+					End:       index,
+				},
+			},
+			MatchRule: "", // This will be modified by upper function
+			Start:     index,
+			End:       index,
+		})
+	}
+
 	// Initiate repetition solve
 	if !solveKeepGoing(rep, input, index, 0) {
-		return []*Path{}
+		return outpaths
 	}
 	ppaths := [][]*Path{}
 	ppaths = append(ppaths, solveElem(grammar, rep.Element, input, index))
@@ -251,27 +270,9 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 	}
 
 	// Return only the appropriate results.
-	outpaths := []*Path{}
 	for i := max(1, rep.Min); i <= len(ppaths); i++ {
 		outpaths = append(outpaths, ppaths[i-1]...)
 	}
-	// If the empty solution if possible, keep track of it
-	if rep.Min == 0 {
-		outpaths = append(outpaths, &Path{
-			Subpaths: []*Path{
-				{
-					Subpaths:  nil,
-					MatchRule: "",
-					Start:     index,
-					End:       index,
-				},
-			},
-			MatchRule: "", // This will be modified by upper function
-			Start:     index,
-			End:       index,
-		})
-	}
-
 	return outpaths
 }
 
