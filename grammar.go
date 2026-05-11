@@ -355,9 +355,17 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 		initialIndex := index
 		matches := true
 		for i := 0; i < len(v.Values) && matches; i++ {
-			inAtI := []rune(string(input))[index]
-			if sensequal(v.Values[i], inAtI, v.Sensitive) {
-				index += len([]byte(string(inAtI)))
+			if index >= len(input) {
+				matches = false
+				break
+			}
+			r, size := utf8.DecodeRune(input[index:])
+			if r == utf8.RuneError && size == 1 {
+				matches = false
+				break
+			}
+			if sensequal(v.Values[i], r, v.Sensitive) {
+				index += size
 			} else {
 				matches = false
 			}
