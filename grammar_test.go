@@ -357,9 +357,6 @@ func Test_U_ParseEndingRepeat0(t *testing.T) {
 }
 
 func Test_U_ParseCharValMultiByteUTF8(t *testing.T) {
-	// Issue #205: ElemCharVal used a byte offset to index a rune slice,
-	// so any multi-byte UTF-8 input either matched the wrong rune or
-	// panicked with an out-of-range index.
 	g := &Grammar{
 		Rulemap: map[string]*Rule{
 			"root": {
@@ -383,12 +380,10 @@ func Test_U_ParseCharValMultiByteUTF8(t *testing.T) {
 		},
 	}
 
-	// Matching multi-byte input must not panic and must return a non-empty path.
 	paths, err := Parse([]byte("éab"), g, "root")
 	assert.NoError(t, err)
 	assert.NotEmpty(t, paths)
 
-	// Trailing bytes after the multi-byte match used to panic on out-of-range.
 	paths2, err := Parse([]byte("éabc"), g, "root")
 	_ = paths2
 	assert.NoError(t, err)
