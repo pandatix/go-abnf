@@ -305,6 +305,20 @@ func Test_U_ParseEmptyCharVal(t *testing.T) {
 		assert.Empty(t, a.Alternation.Concatenations[0].Repetitions[0].Element.(ElemCharVal).Values)
 	}
 
+	// Issue #206 documents the empty char-val in an infinite-upper-bounded repetition.
+	// It shows that due to the assumption of a char-val is at least one character long,
+	// solving the element of such rule connsumes a non-empty part of the input. Though, in
+	// the context of an empty char-val, such loop never ends yet no iteration produces new
+	// valid paths of evaluation.
+	{
+		g, err := ParseABNF([]byte("a=*\"\"\r\n"))
+		require.NoError(t, err)
+
+		_, err = Parse([]byte("test"), g, "a") // This had an infinite loop
+		assert.NoError(t, err)
+	}
+
+	// The following test case is for regression detection
 	{
 		g, err := ParseABNF([]byte("a=\"abc\"\r\n"))
 		require.NoError(t, err)

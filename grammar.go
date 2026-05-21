@@ -267,6 +267,11 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 		if len(ppaths[i]) == 0 {
 			break
 		}
+		// If one path has been produced yet did not made progress, we should not iterate as it
+		// won't go further (e.g., can happen with the repetition of an empty char-val).
+		if len(ppaths[i]) == 1 && ppaths[i][0].Start == ppaths[i][0].End {
+			break
+		}
 	}
 
 	// Return only the appropriate results.
