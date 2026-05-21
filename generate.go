@@ -82,7 +82,7 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 			case ElemCharVal:
 				for _, val := range elem.Values {
 					if !elem.Sensitive && (int(rand.Int63())%2) == 0 {
-						val = strmax(val)
+						val = runeMax(val)
 					}
 					appendPtr(out, val)
 				}
