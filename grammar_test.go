@@ -355,3 +355,35 @@ func Test_U_ParseEndingRepeat0(t *testing.T) {
 		assert.NoError(t, err)
 	}
 }
+
+func Test_U_ParseCharValMultiByteUTF8(t *testing.T) {
+	// Issue #205: ElemCharVal used a byte offset to index a rune slice,
+	// so any multi-byte UTF-8 input matched the wrong rune, leading to false negatives.
+	g := &Grammar{
+		Rulemap: map[string]*Rule{
+			"root": {
+				Name: "root",
+				Alternation: Alternation{
+					Concatenations: []Concatenation{
+						{
+							Repetitions: []Repetition{
+								{
+									Min: 1, Max: 1,
+									Element: ElemCharVal{
+										Sensitive: true,
+										Values:    []rune{'é', 'a', 'b'},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Matching multi-byte input must return a non-empty path.
+	paths, err := Parse([]byte("éab"), g, "root")
+	assert.NoError(t, err)
+	assert.NotEmpty(t, paths)
+}
