@@ -846,11 +846,11 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 			} else {
 				nlv := r
 				if isUpper {
-					nlv = strmin(nlv)
+					nlv = runeMin(nlv)
 				}
 				nuv := r
 				if isLower {
-					nuv = strmax(nuv)
+					nuv = runeMax(nuv)
 				}
 
 				nl := newNode(ElemCharVal{

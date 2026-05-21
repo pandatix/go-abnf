@@ -376,20 +376,20 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 
 func sensequal(target, actual rune, sensitive bool) bool {
 	if !sensitive {
-		target, actual = strmin(target), strmin(actual)
+		target, actual = runeMin(target), runeMin(actual)
 	}
 	return target == actual
 }
 
-func strmin(r rune) rune {
+func runeMin(r rune) rune {
 	if r >= 'A' && r <= 'Z' {
 		return r - 'A' + 'a'
 	}
 	return r
 }
 
-func strmax(r rune) rune {
-	if r >= 'a' && r <= 'Z' {
+func runeMax(r rune) rune {
+	if r >= 'a' && r <= 'z' {
 		return r - 'a' + 'A'
 	}
 	return r
