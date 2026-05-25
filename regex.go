@@ -1,3 +1,6 @@
+// Copyright 2026 The go-subjectid Authors
+// SPDX-License-Identifier: Apache-2.0
+
 package goabnf
 
 import (
@@ -58,6 +61,11 @@ func (cnt Concatenation) regex(g *Grammar) (string, error) {
 }
 
 func (rep Repetition) regex(g *Grammar) (string, error) {
+	// Quantifier syntax targets Go's regexp/syntax (RE2), which
+	// requires {0,M} for the from-zero bounded form (RE2 does
+	// not accept {,M}). The fourth case — min > 0, max < inf,
+	// min != max — was missing in earlier versions and silently
+	// emitted no quantifier; it now emits {min,max}.
 	reps := ""
 	switch {
 	case rep.Min == rep.Max:
@@ -66,10 +74,12 @@ func (rep Repetition) regex(g *Grammar) (string, error) {
 		if rep.Max == inf {
 			reps = "*"
 		} else {
-			reps = fmt.Sprintf("{,%d}", rep.Max)
+			reps = fmt.Sprintf("{0,%d}", rep.Max)
 		}
 	case rep.Max == inf:
 		reps = fmt.Sprintf("{%d,}", rep.Min)
+	default:
+		reps = fmt.Sprintf("{%d,%d}", rep.Min, rep.Max)
 	}
 	reg, err := rep.Element.regex(g)
 	if err != nil {
