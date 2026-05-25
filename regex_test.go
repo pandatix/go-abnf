@@ -1,6 +1,3 @@
-// Copyright 2026 The go-subjectid Authors
-// SPDX-License-Identifier: Apache-2.0
-
 package goabnf
 
 import (
