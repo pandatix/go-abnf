@@ -401,3 +401,27 @@ func Test_U_ParseCharValMultiByteUTF8(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotEmpty(t, paths)
 }
+
+func Test_U_ParseStackOverflow(t *testing.T) {
+	// Left-recursive: previously crashed Parse with fatal stack overflow.
+	{
+		g, _ := ParseABNF([]byte("s = s \"a\" / \"a\"\r\n"), WithValidation(false))
+		paths, err := Parse([]byte("aaaa"), g, "s")
+		assert.Empty(t, paths)
+		assert.Error(t, err)
+	}
+
+	// Sanity: a normal left-terminating grammar still parses fine.
+	{
+		g, _ := ParseABNF([]byte("s = \"a\" *(\"b\" / \"c\")\r\n"), WithValidation(false))
+		paths, err := Parse([]byte("abcbc"), g, "s")
+		assert.NotEmpty(t, paths)
+		assert.NoError(t, err)
+	}
+
+	// Sanity: ParseABNF (uses fixed ABNF grammar) still works.
+	{
+		_, err := ParseABNF([]byte("greeting = \"hello\" SP \"world\"\r\n"))
+		assert.NoError(t, err)
+	}
+}

@@ -110,3 +110,17 @@ var _ error = (*ErrCyclicRule)(nil)
 func (err ErrCyclicRule) Error() string {
 	return fmt.Sprintf("can't generate a content as the rule %s involves an unavoidable cycle", err.Rulename)
 }
+
+// ErrLeftRecursion is returned by Parse when a rule recurses into itself
+// without consuming input (left recursion). Such grammars cannot be parsed by
+// the brute-force engine: the recursion is cut to avoid an unrecoverable stack
+// overflow, so any result would be incomplete.
+type ErrLeftRecursion struct {
+	Rulename string
+}
+
+var _ error = (*ErrLeftRecursion)(nil)
+
+func (err ErrLeftRecursion) Error() string {
+	return fmt.Sprintf("rule %s is left recursive and cannot be parsed", err.Rulename)
+}

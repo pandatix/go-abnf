@@ -142,8 +142,22 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 		}
 	}
 
-	// Parse input with grammar's initial rule
-	possibilites := solveAlt(grammar, rootRule.Alternation, input, 0)
+	// Parse input with grammar's initial rule.
+	// visited tracks (rulename@index) currently on the recursion stack so we
+	// can cut a rule that re-enters itself at the *same* input index without
+	// consuming anything (left recursion) -> would otherwise recurse forever
+	// and stack-overflow (an uncatchable Go fatal error). Progressing
+	// recursion (e.g. right recursion "a" s) re-enters at a larger index and
+	// is unaffected, as are non-recursive non-left-terminating rules (*"").
+	st := &parseState{onStack: map[string]bool{}}
+	possibilites := solveAlt(grammar, rootRule.Alternation, input, 0, st)
+
+	// A left-recursive rule cannot be handled by this engine: the guard below
+	// cut the non-progressing cycle, so any result would be incomplete. Report
+	// it explicitly instead of silently returning a partial (wrong) result.
+	if st.leftRec != "" {
+		return nil, &ErrLeftRecursion{Rulename: st.leftRec}
+	}
 
 	// Look for solutions that consumed the whole input
 	outPoss := []*Path{}
@@ -157,14 +171,20 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error)
 	return outPoss, nil
 }
 
-func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Path {
+// parseState carries the recursion-cut bookkeeping for a single Parse call.
+type parseState struct {
+	onStack map[string]bool // (rulename@index) currently on the recursion stack
+	leftRec string          // non-empty if a left-recursion cycle was cut
+}
+
+func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int, st *parseState) []*Path {
 	altPossibilities := []*Path{}
 
 	for _, concat := range alt.Concatenations {
 		cntPossibilities := []*Path{}
 
 		// Init with first repetition (guarantee of at least 1 repetition)
-		possibilities := solveRep(grammar, concat.Repetitions[0], input, index)
+		possibilities := solveRep(grammar, concat.Repetitions[0], input, index, st)
 		for _, poss := range possibilities {
 			cntPossibilities = append(cntPossibilities, &Path{
 				Subpaths:  []*Path{poss},
@@ -181,7 +201,7 @@ func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Pat
 
 			tmpPossibilities := []*Path{}
 			for _, cntPoss := range cntPossibilities {
-				possibilities := solveRep(grammar, rep, input, cntPoss.End)
+				possibilities := solveRep(grammar, rep, input, cntPoss.End, st)
 				for _, poss := range possibilities {
 					// If the possibility is the empty path, don't append the empty one
 					if poss.Start == poss.End {
@@ -213,7 +233,7 @@ func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Pat
 	return altPossibilities
 }
 
-func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path {
+func solveRep(grammar *Grammar, rep Repetition, input []byte, index int, st *parseState) []*Path {
 	outpaths := []*Path{}
 
 	// If the empty solution if possible, keep track of it
@@ -238,7 +258,7 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 		return outpaths
 	}
 	ppaths := [][]*Path{}
-	ppaths = append(ppaths, solveElem(grammar, rep.Element, input, index))
+	ppaths = append(ppaths, solveElem(grammar, rep.Element, input, index, st))
 
 	// Other repetition solves
 	for i := 1; i != rep.Max; i++ {
@@ -248,7 +268,7 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 			if !solveKeepGoing(rep, input, prevPath.End, i) {
 				continue
 			}
-			elemPossibilities := solveElem(grammar, rep.Element, input, prevPath.End)
+			elemPossibilities := solveElem(grammar, rep.Element, input, prevPath.End, st)
 			for _, elemPoss := range elemPossibilities {
 				subs := make([]*Path, len(prevPath.Subpaths), len(prevPath.Subpaths)+1)
 				copy(subs, prevPath.Subpaths)
@@ -281,13 +301,29 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path
 	return outpaths
 }
 
-func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path {
+func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int, st *parseState) []*Path {
 	paths := []*Path{}
 
 	switch v := elem.(type) {
 	case ElemRulename:
 		rule := GetRule(v.Name, grammar.Rulemap)
-		possibilities := solveAlt(grammar, rule.Alternation, input, index)
+		// Cut non-progressing recursion: if this rule is already being solved
+		// at this exact index, re-entering it consumes nothing and would
+		// recurse forever (left recursion). Returning no paths here is sound,
+		// as such a branch can only produce infinite/empty-cycle derivations.
+		key := strings.ToLower(v.Name) + "@" + strconv.Itoa(index)
+		if st.onStack[key] {
+			// Re-entry at the same index == non-progressing (left) recursion:
+			// cut the branch to avoid an (uncatchable) stack overflow, and flag
+			// it so Parse can report ErrLeftRecursion rather than return a
+			// silently-incomplete result.
+			st.leftRec = v.Name
+			return paths
+		}
+		st.onStack[key] = true
+		possibilities := solveAlt(grammar, rule.Alternation, input, index, st)
+		delete(st.onStack, key)
+
 		for _, poss := range possibilities {
 			poss.MatchRule = v.Name
 			paths = append(paths, poss)
@@ -298,10 +334,10 @@ func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path 
 			Min:     0,
 			Max:     1,
 			Element: ElemGroup(v),
-		}, input, index)
+		}, input, index, st)
 
 	case ElemGroup:
-		paths = solveAlt(grammar, v.Alternation, input, index)
+		paths = solveAlt(grammar, v.Alternation, input, index, st)
 
 	case ElemNumVal:
 		switch v.Status {
