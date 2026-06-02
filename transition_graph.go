@@ -182,8 +182,11 @@ func WithRepetitionThreshold(threshold int) TGOption {
 
 func (tg *TransitionGraph) Reader() *TransitionGraphReader {
 	return &TransitionGraphReader{
-		tg:     tg,
-		thread: []threadTuple{},
+		tg:      tg,
+		thread:  []threadTuple{},
+		cpCache: map[string]bool{},
+		nodeIdx: map[string]int{},
+		edgePos: map[int64][]int{},
 	}
 }
 
@@ -193,6 +196,25 @@ type TransitionGraphReader struct {
 
 	// thread is the current travel path through tg.
 	thread []threadTuple
+
+	// cpCache memoizes canProduce(node) per node ID. canProduce is a pure
+	// function of the (immutable) graph, so it is identical on every call for
+	// a given node; without this it was recomputed -- via a full subgraph DFS
+	// with a fresh map -- at every node visit of every Scan, which dominated
+	// enumeration cost. Caching it does not change what is produced.
+	cpCache map[string]bool
+
+	// Incremental index of the consecutive (from->to) edges currently in
+	// `thread`. transitionInThread / hasNextNode used to scan the whole thread
+	// (O(len)) on every call, which the profiler showed was ~85% of Scan time.
+	// With this index, membership is O(1). nodeIdx interns node IDs to dense
+	// ints for cheap keys; edgePos maps an edge key to the (ascending) list of
+	// positions i where thread[i]->thread[i+1] is that edge; edgeAt[i] is the
+	// edge key at position i. All thread mutations go through pushTuple /
+	// truncateThread so the index can never desync.
+	nodeIdx map[string]int
+	edgePos map[int64][]int
+	edgeAt  []int64
 }
 
 type threadTuple struct {
@@ -228,7 +250,7 @@ func (tgr *TransitionGraphReader) Next() bool {
 
 	// produce iff rules are deflated if necessary
 	node := tgr.tg.Entrypoints[idx]
-	return tgr.tg.options.deflateRules || canProduce(node, map[string]struct{}{})
+	return tgr.tg.options.deflateRules || tgr.canProduceCached(node)
 }
 
 func (tgr *TransitionGraphReader) Scan() []byte {
@@ -259,18 +281,19 @@ func (tgr *TransitionGraphReader) Scan() []byte {
 	}
 
 	// Else it is a non-empty node, so recurse through the thread
-	b, roll := tgr.produce(n, 1)
+	var b []byte
+	roll := tgr.produce(n, 1, &b)
 	if roll {
 		tgr.thread[0].pos++
-		tgr.thread = tgr.thread[:1]
+		tgr.truncateThread(1)
 	}
 	return b
 }
 
-func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []byte, roll bool) {
+func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int, out *[]byte) (roll bool) {
 	// produce iff rules are deflated and if necessary
-	if !tgr.tg.options.deflateRules && !canProduce(node, map[string]struct{}{}) {
-		return nil, false
+	if !tgr.tg.options.deflateRules && !tgr.canProduceCached(node) {
+		return false
 	}
 
 	isInThread := len(tgr.thread) > threadIndex
@@ -284,6 +307,7 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 	vtotal := int32(0)
 
 	// Produce this node content
+	var prod []byte
 	switch v := node.Elem.(type) {
 	case ElemCharVal:
 		prod = make([]byte, 0, len(v.Values))
@@ -358,11 +382,17 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 		panic(fmt.Sprintf("should not happen, got type %v", v))
 	}
 
+	// Emit this frame's bytes into the shared buffer. Accumulating in a single
+	// buffer -- instead of returning per-frame slices and concatenating the
+	// suffix up the call stack -- makes a Scan linear in the produced length
+	// rather than quadratic. Children append after us, preserving byte order.
+	*out = append(*out, prod...)
+
 	isFullyVariated = tpos+1 == vtotal // +1 <= we completed an iteration
 
 	// Register in thread if not known yet
 	if !isInThread {
-		tgr.thread = append(tgr.thread, threadTuple{
+		tgr.pushTuple(threadTuple{
 			id:     node.ID,
 			pos:    0,
 			tpos:   tpos, // don't increase yet, will do it later if required
@@ -372,7 +402,7 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 
 	// If has nothing next (is an endpoint), return fast
 	// Stop here too if we are going to hit infinite recursions
-	if isLast || !hasNextNode(node, tgr.thread[:threadIndex+1], tgr.thread[threadIndex].pos) {
+	if isLast || !tgr.hasUnusedNext(node, threadIndex+1, tgr.thread[threadIndex].pos) {
 		tgr.thread[threadIndex].tpos++ // btw we did an iteration :)
 		roll = isFullyVariated
 		return
@@ -394,7 +424,7 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 	if isInThread {
 		nid = tgr.thread[threadIndex].pos
 	} else {
-		tgr.thread = append(tgr.thread, threadTuple{
+		tgr.pushTuple(threadTuple{
 			id:     node.ID,
 			pos:    0,
 			tpos:   tpos,
@@ -406,7 +436,7 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 	// -> avoid infinite recursions).
 	nn := node.Nexts[nid]
 	for {
-		if !isInThread && transitionInThread(tgr.thread, node.ID, nn.ID) {
+		if !isInThread && tgr.edgeInPrefix(node.ID, nn.ID, len(tgr.thread)) {
 			nid++
 			nn = node.Nexts[nid]
 			continue
@@ -416,59 +446,117 @@ func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int) (prod []b
 	tgr.thread[threadIndex].pos = nid
 
 	// Produce next node and concat to this one's result
-	sub, roll := tgr.produce(nn, threadIndex+1)
+	roll = tgr.produce(nn, threadIndex+1, out)
 	if roll {
 		// If it is non fully variated yet, move onto next variation and cut down thread
 		if !isFullyVariated {
-			tgr.thread[threadIndex].tpos++          // this thread tuple needs to go on the next char
-			tgr.thread[threadIndex].justCut = true  // hey future iteration, we just cut it so if you need to produce, go on
-			tgr.thread = tgr.thread[:threadIndex+1] // cut thread from here to regen nexts
-			return append(prod, sub...), false
+			tgr.thread[threadIndex].tpos++         // this thread tuple needs to go on the next char
+			tgr.thread[threadIndex].justCut = true // hey future iteration, we just cut it so if you need to produce, go on
+			tgr.truncateThread(threadIndex + 1)    // cut thread from here to regen nexts
+			return false
 		}
 
 		// If there are no nexts, propagate roll
 		if nid+1 == len(node.Nexts) {
-			return append(prod, sub...), true
+			return true
 		}
 
 		// Then if there is a non-processed (in stack) edge, roll on it, else propagate roll next
 		var nextNotInThread *int
 		for i := nid + 1; i < len(node.Nexts); i++ {
-			if !transitionInThread(tgr.thread[:threadIndex+1], node.ID, node.Nexts[i].ID) {
+			if !tgr.edgeInPrefix(node.ID, node.Nexts[i].ID, threadIndex+1) {
 				nextNotInThread = &i
 				break
 			}
 		}
 		if nextNotInThread != nil {
-			tgr.thread = tgr.thread[:threadIndex+1]
+			tgr.truncateThread(threadIndex + 1)
 			tgr.thread[threadIndex].pos = *nextNotInThread
 			tgr.thread[threadIndex].tpos = 0
 			tgr.thread[threadIndex].vtotal = 0
 
-			return append(prod, sub...), false
+			return false
 		}
-		return append(prod, sub...), isFullyVariated
+		return isFullyVariated
 	}
-	return append(prod, sub...), roll
+	return roll
 }
 
-func transitionInThread(thread []threadTuple, from, to string) bool {
-	for i, e := range thread {
-		if e.id == from && i+1 != len(thread) && thread[i+1].id == to {
+func edgeKey(from, to int) int64 { return int64(from)<<32 | int64(to) }
+
+func (tgr *TransitionGraphReader) intern(id string) int {
+	if v, ok := tgr.nodeIdx[id]; ok {
+		return v
+	}
+	v := len(tgr.nodeIdx)
+	tgr.nodeIdx[id] = v
+	return v
+}
+
+// pushTuple appends t to the thread and registers the edge it introduces.
+func (tgr *TransitionGraphReader) pushTuple(t threadTuple) {
+	tgr.thread = append(tgr.thread, t)
+	n := len(tgr.thread)
+	if n < 2 {
+		return
+	}
+	k := edgeKey(tgr.intern(tgr.thread[n-2].id), tgr.intern(tgr.thread[n-1].id))
+	tgr.edgePos[k] = append(tgr.edgePos[k], n-2) // positions appended ascending
+	tgr.edgeAt = append(tgr.edgeAt, k)
+}
+
+// truncateThread shrinks the thread to length n, unregistering the edges that
+// disappear (those at positions >= n-1). Edges are removed top-down, matching
+// the ascending order they were pushed in.
+func (tgr *TransitionGraphReader) truncateThread(n int) {
+	for i := len(tgr.edgeAt) - 1; i >= n-1 && i >= 0; i-- {
+		k := tgr.edgeAt[i]
+		ps := tgr.edgePos[k]
+		if len(ps) > 0 && ps[len(ps)-1] == i {
+			if len(ps) == 1 {
+				delete(tgr.edgePos, k)
+			} else {
+				tgr.edgePos[k] = ps[:len(ps)-1]
+			}
+		}
+	}
+
+	cut := max(n-1, 0)
+	if cut <= len(tgr.edgeAt) {
+		tgr.edgeAt = tgr.edgeAt[:cut]
+	}
+	tgr.thread = tgr.thread[:n]
+}
+
+// edgeInPrefix reports, in O(1), whether edge from->to occurs within
+// thread[:m] (at some position i <= m-2). Replaces transitionInThread.
+func (tgr *TransitionGraphReader) edgeInPrefix(fromID, toID string, m int) bool {
+	ps := tgr.edgePos[edgeKey(tgr.intern(fromID), tgr.intern(toID))]
+	return len(ps) > 0 && ps[0] <= m-2 // ps ascending -> ps[0] is the earliest
+}
+
+// hasUnusedNext reports whether node has an outgoing edge (within thread[:m])
+// not yet taken, scanning Nexts[pos:]. Replaces hasNextNode.
+func (tgr *TransitionGraphReader) hasUnusedNext(node *Node, m, pos int) bool {
+	for _, rem := range node.Nexts[pos:] {
+		if !tgr.edgeInPrefix(node.ID, rem.ID, m) {
 			return true
 		}
 	}
 	return false
 }
 
-func hasNextNode(node *Node, thread []threadTuple, pos int) bool {
-	rems := node.Nexts[pos:]
-	for _, rem := range rems {
-		if !transitionInThread(thread, node.ID, rem.ID) {
-			return true
-		}
+// canProduceCached memoizes canProduce(node) for the lifetime of the reader.
+func (tgr *TransitionGraphReader) canProduceCached(node *Node) bool {
+	if node == emptyNode {
+		return true
 	}
-	return false
+	if v, ok := tgr.cpCache[node.ID]; ok {
+		return v
+	}
+	v := canProduce(node, map[string]struct{}{})
+	tgr.cpCache[node.ID] = v
+	return v
 }
 
 func canProduce(node *Node, done map[string]struct{}) bool {
