@@ -24,8 +24,21 @@ func (g *Grammar) IsValid(rulename string, input []byte) (bool, error) {
 	if !lt {
 		return false, fmt.Errorf("rule %s is not left terminating thus can't be validated without the risk of infinite recursion", rulename)
 	}
-	paths, err := Parse(input, g, rulename)
-	return len(paths) != 0 && err == nil, nil
+
+	// Validity only needs to know whether some derivation consumes the whole
+	// input, never the (possibly exponentially many) derivations themselves.
+	// We therefore propagate the set of reachable end-positions per
+	// (element, index) instead of enumerating paths, which keeps this
+	// polynomial. See recognize.go.
+	rule := GetRule(rulename, g.Rulemap)
+	r := &recognizer{
+		g:          g,
+		input:      input,
+		memo:       map[string]map[int]bool{},
+		inProgress: map[string]bool{},
+	}
+	ends := r.reachAlt(rule.Alternation, 0)
+	return ends[len(input)], nil
 }
 
 // String returns the representation of the grammar that is valid

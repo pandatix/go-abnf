@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	_ "embed"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -424,4 +425,224 @@ func Test_U_ParseStackOverflow(t *testing.T) {
 		_, err := ParseABNF([]byte("greeting = \"hello\" SP \"world\"\r\n"))
 		assert.NoError(t, err)
 	}
+}
+
+// Test_U_IsValid verifies (*Grammar).IsValid, which is now backed by the
+// polynomial position-set recognizer (recognize.go) instead of enumerating
+// every parse path. The table documents the expected contract:
+//   - a left-terminating rule yields a boolean verdict and no error ;
+//   - a non-left-terminating rule -- including any left-recursive one, whether
+//     direct or indirect, and the empty char-val case of issue #206 -- is
+//     refused with an error ;
+//   - an unknown rulename is an error.
+//
+// The "ambiguous-large-input" case is also a regression guard: that input has
+// 2^200 distinct parse paths and would never terminate under the previous
+// path-enumerating implementation, so its mere completion proves IsValid stays
+// polynomial.
+func Test_U_IsValid(t *testing.T) {
+	t.Parallel()
+
+	var tests = map[string]struct {
+		Grammar       *Grammar
+		Rulename      string
+		Input         []byte
+		ExpectedValid bool
+		ExpectErr     bool
+	}{
+		"charval-match": {
+			Grammar:       mustGrammar("s = \"abc\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("abc"),
+			ExpectedValid: true,
+		},
+		"charval-nomatch": {
+			Grammar:       mustGrammar("s = \"abc\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("abd"),
+			ExpectedValid: false,
+		},
+		"bounded-rep-in-range": {
+			Grammar:       mustGrammar("s = 2*4\"a\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("aaa"),
+			ExpectedValid: true,
+		},
+		"bounded-rep-too-few": {
+			Grammar:       mustGrammar("s = 2*4\"a\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("a"),
+			ExpectedValid: false,
+		},
+		"bounded-rep-too-many": {
+			Grammar:       mustGrammar("s = 2*4\"a\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("aaaaa"),
+			ExpectedValid: false,
+		},
+		"option-present": {
+			Grammar:       mustGrammar("s = [\"a\"] \"b\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("ab"),
+			ExpectedValid: true,
+		},
+		"option-absent": {
+			Grammar:       mustGrammar("s = [\"a\"] \"b\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("b"),
+			ExpectedValid: true,
+		},
+		"numval-range-in": {
+			Grammar:       mustGrammar("s = %x61-63\r\n"),
+			Rulename:      "s",
+			Input:         []byte("b"),
+			ExpectedValid: true,
+		},
+		"numval-range-out": {
+			Grammar:       mustGrammar("s = %x61-63\r\n"),
+			Rulename:      "s",
+			Input:         []byte("d"),
+			ExpectedValid: false,
+		},
+		"core-rule": {
+			Grammar:       mustGrammar("s = 1*DIGIT\r\n"),
+			Rulename:      "s",
+			Input:         []byte("0042"),
+			ExpectedValid: true,
+		},
+		"backtracking-needed": {
+			// The greedy *"ab" must give a character back so the trailing
+			// "a" can match the final byte.
+			Grammar:       mustGrammar("s = *\"ab\" \"a\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("ababa"),
+			ExpectedValid: true,
+		},
+		"mutual-recursion": {
+			Grammar:       mustGrammar("a = \"x\" b\r\nb = \"y\" / \"y\" a\r\n"),
+			Rulename:      "a",
+			Input:         []byte("xyxy"),
+			ExpectedValid: true,
+		},
+		"ambiguous-correct": {
+			Grammar:       mustGrammar("s = *(\"a\" / \"a\")\r\n"),
+			Rulename:      "s",
+			Input:         []byte("aaaa"),
+			ExpectedValid: true,
+		},
+		"ambiguous-large-input": {
+			// 2^200 distinct parse paths: tractable only because IsValid no
+			// longer enumerates them. Guards against exponential regression.
+			Grammar:       mustGrammar("s = *(\"a\" / \"a\")\r\n"),
+			Rulename:      "s",
+			Input:         []byte(strings.Repeat("a", 200)),
+			ExpectedValid: true,
+		},
+		"non-left-terminating-empty-charval": {
+			// Issue #206: a = *"" is non-left-terminating; IsValid refuses it.
+			Grammar:   mustGrammar("a = *\"\"\r\n"),
+			Rulename:  "a",
+			Input:     []byte("test"),
+			ExpectErr: true,
+		},
+		"direct-left-recursion": {
+			Grammar:   mustGrammar("s = s \"a\" / \"a\"\r\n"),
+			Rulename:  "s",
+			Input:     []byte("aaaa"),
+			ExpectErr: true,
+		},
+		"indirect-left-recursion": {
+			Grammar:   mustGrammar("s = t \"a\"\r\nt = s / \"b\"\r\n"),
+			Rulename:  "s",
+			Input:     []byte("ba"),
+			ExpectErr: true,
+		},
+		"unknown-rule": {
+			Grammar:   mustGrammar("s = \"a\"\r\n"),
+			Rulename:  "nope",
+			Input:     []byte("a"),
+			ExpectErr: true,
+		},
+	}
+
+	for testname, tt := range tests {
+		t.Run(testname, func(t *testing.T) {
+			assert := assert.New(t)
+
+			valid, err := tt.Grammar.IsValid(tt.Rulename, tt.Input)
+			if (err != nil) != tt.ExpectErr {
+				t.Fatalf("Expected error: %t ; got %v", tt.ExpectErr, err)
+			}
+			if tt.ExpectErr {
+				return
+			}
+			assert.Equal(tt.ExpectedValid, valid)
+		})
+	}
+}
+
+// Test_U_IsValidMatchesParse cross-checks the recognizer-backed IsValid against
+// an independent oracle: the path-enumerating Parse, which is complete for
+// left-terminating grammars. For every grammar below and every input over a
+// small alphabet up to a bounded length, IsValid must return true exactly when
+// Parse finds at least one path that consumes the whole input. This is the
+// property that makes the recognizer a behaviour-preserving replacement of the
+// previous Parse-based IsValid.
+func Test_U_IsValidMatchesParse(t *testing.T) {
+	t.Parallel()
+
+	var grammars = map[string]struct {
+		Grammar  *Grammar
+		Rulename string
+	}{
+		"ambiguous":        {mustGrammar("s = *(\"a\" / \"a\")\r\n"), "s"},
+		"overlapping-alts": {mustGrammar("s = 1*(\"a\" / \"ab\")\r\n"), "s"},
+		"ambiguous-split":  {mustGrammar("s = *\"a\" *\"a\"\r\n"), "s"},
+		"prefix-alts":      {mustGrammar("s = \"a\" / \"ab\" / \"abc\"\r\n"), "s"},
+		"bounded-rep":      {mustGrammar("s = 2*4\"a\"\r\n"), "s"},
+		"option":           {mustGrammar("s = [\"a\"] \"b\"\r\n"), "s"},
+		"group-rep":        {mustGrammar("s = (\"a\" / \"b\") *(\"a\" / \"b\")\r\n"), "s"},
+		"numval-range":     {mustGrammar("s = %x61-63 *%x61-63\r\n"), "s"},
+		"numval-series":    {mustGrammar("s = %x61.62.63\r\n"), "s"},
+		"mutual-recursion": {mustGrammar("a = \"x\" b\r\nb = \"y\" / \"y\" a\r\n"), "a"},
+		"core-rules":       {mustGrammar("s = *(ALPHA / DIGIT)\r\n"), "s"},
+		"backtracking":     {mustGrammar("s = *\"ab\" \"a\"\r\n"), "s"},
+	}
+
+	inputs := allInputsUpTo("abxy1", 5)
+
+	for testname, tt := range grammars {
+		t.Run(testname, func(t *testing.T) {
+			for _, in := range inputs {
+				// Oracle: Parse is complete for left-terminating grammars, so
+				// "at least one full-consuming path" is the ground truth.
+				paths, err := Parse(in, tt.Grammar, tt.Rulename)
+				require.NoError(t, err)
+				want := len(paths) != 0
+
+				got, err := tt.Grammar.IsValid(tt.Rulename, in)
+				require.NoError(t, err)
+				assert.Equalf(t, want, got, "grammar %q input %q", testname, string(in))
+			}
+		})
+	}
+}
+
+// allInputsUpTo returns every string over alphabet with length in [0, maxLen],
+// as byte slices, for exhaustive differential testing.
+func allInputsUpTo(alphabet string, maxLen int) [][]byte {
+	out := [][]byte{{}}
+	cur := []string{""}
+	for l := 1; l <= maxLen; l++ {
+		next := make([]string, 0, len(cur)*len(alphabet))
+		for _, p := range cur {
+			for _, c := range alphabet {
+				s := p + string(c)
+				next = append(next, s)
+				out = append(out, []byte(s))
+			}
+		}
+		cur = next
+	}
+	return out
 }
