@@ -160,14 +160,39 @@ func FuzzDifferentialBothDirections(f *testing.F) {
 	f.Fuzz(func(t *testing.T, tape []byte) {
 		// Positive direction: valid production must be accepted.
 		prod := gen.Generate(tape)
+
 		if ok, _ := g.IsValid("a", prod); ok && !Function(prod) {
 			t.Fatalf("false rejection: target rejected valid %q", prod)
 		}
+
 		// Negative direction: near-miss from the same tape must be rejected.
 		if nm, label, ok := gen.NearMiss(tape); ok {
 			if v, _ := g.IsValid("a", nm); !v && Function(nm) {
 				t.Fatalf("over-acceptance: target accepted invalid %q (%s)", nm, label)
 			}
+		}
+	})
+}
+
+// Every production the grammar admits must be accepted by the target.
+// The fuzzer's bytes are the generator's tape, so libFuzzer's coverage
+// feedback steers it toward structurally novel (e.g. deeper) inputs.
+func FuzzAST(f *testing.F) {
+	g, gen := newASTGen(f)
+	for _, seed := range [][]byte{nil, {0}, {1, 1}, {3, 0, 1, 2}, {7, 7, 7, 7, 7, 7, 7}} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, tape []byte) {
+		prod := gen.Generate(tape)
+
+		// Sanity: the generator only emits grammar-valid words.
+		if ok, err := g.IsValid("list", prod); err != nil || !ok {
+			t.Fatalf("generator emitted grammar-invalid production %q (ok=%v err=%v)", prod, ok, err)
+		}
+
+		// Oracle: a correct parser must accept every valid word.
+		if !Function(prod) {
+			t.Fatalf("target rejected a valid production: %q", prod)
 		}
 	})
 }
@@ -187,7 +212,27 @@ func newGen(tb testing.TB) (*goabnf.Grammar, *goabnf.Generator) {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	gen, err := goabnf.NewGenerator(tg, goabnf.WithMaxLength(32), goabnf.WithMaxReps(8))
+	gen, err := goabnf.NewGenerator(tg,
+		goabnf.WithMaxLength(32),
+		goabnf.WithMaxReps(8),
+	)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return g, gen
+}
+
+// newASTGen builds an AST-based generator for a rule "a".
+func newASTGen(tb testing.TB) (*goabnf.Grammar, *goabnf.ASTGenerator) {
+	g, err := goabnf.ParseABNF(myGrammar)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	gen, err := goabnf.NewASTGenerator(g, "a",
+		goabnf.WithMaxDepth(12),
+		goabnf.WithMaxLen(256),
+		goabnf.WithMaxRepeat(4),
+	)
 	if err != nil {
 		tb.Fatal(err)
 	}
