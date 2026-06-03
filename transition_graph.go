@@ -14,8 +14,9 @@ import (
 // It contains the list of entrypoints and endpoints.
 // You could travel through the graph starting from the entrypoints.
 type TransitionGraph struct {
-	grammar *Grammar
-	options *tgoptions
+	grammar  *Grammar
+	rulename string
+	options  *tgoptions
 
 	Entrypoints []*Node
 	Endpoints   []*Node
@@ -86,6 +87,7 @@ func (g *Grammar) TransitionGraph(rulename string, opts ...TGOption) (*Transitio
 	}
 	return &TransitionGraph{
 		grammar:     g,
+		rulename:    rulename,
 		options:     options,
 		Entrypoints: entrypoints,
 		Endpoints:   endpoints,
