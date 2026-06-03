@@ -17,27 +17,26 @@ type Grammar struct {
 // input, hence is valid given this grammar and especially one of its
 // rule.
 func (g *Grammar) IsValid(rulename string, input []byte) (bool, error) {
-	lt, err := g.IsLeftTerminating(rulename)
-	if err != nil {
-		return false, err
+	rule := GetRule(rulename, g.Rulemap)
+	if rule == nil {
+		return false, &ErrRuleNotFound{Rulename: rulename}
 	}
-	if !lt {
-		return false, fmt.Errorf("rule %s is not left terminating thus can't be validated without the risk of infinite recursion", rulename)
-	}
-
 	// Validity only needs to know whether some derivation consumes the whole
 	// input, never the (possibly exponentially many) derivations themselves.
 	// We therefore propagate the set of reachable end-positions per
 	// (element, index) instead of enumerating paths, which keeps this
-	// polynomial. See recognize.go.
-	rule := GetRule(rulename, g.Rulemap)
+	// polynomial. Left-recursive rules are resolved by seed-growing rather than
+	// refused; see recognize.go and leftrec.go.
 	r := &recognizer{
 		g:          g,
 		input:      input,
 		memo:       map[string]map[int]bool{},
 		inProgress: map[string]bool{},
+		leftRec:    g.leftRecursiveSCCs(),
+		growing:    map[string]map[int]bool{},
+		headActive: map[int]int{},
 	}
-	ends := r.reachAlt(rule.Alternation, 0)
+	ends := r.reachElem(ElemRulename{Name: rulename}, 0)
 	return ends[len(input)], nil
 }
 

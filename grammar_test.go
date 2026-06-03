@@ -427,19 +427,6 @@ func Test_U_ParseStackOverflow(t *testing.T) {
 	}
 }
 
-// Test_U_IsValid verifies (*Grammar).IsValid, which is now backed by the
-// polynomial position-set recognizer (recognize.go) instead of enumerating
-// every parse path. The table documents the expected contract:
-//   - a left-terminating rule yields a boolean verdict and no error ;
-//   - a non-left-terminating rule -- including any left-recursive one, whether
-//     direct or indirect, and the empty char-val case of issue #206 -- is
-//     refused with an error ;
-//   - an unknown rulename is an error.
-//
-// The "ambiguous-large-input" case is also a regression guard: that input has
-// 2^200 distinct parse paths and would never terminate under the previous
-// path-enumerating implementation, so its mere completion proves IsValid stays
-// polynomial.
 func Test_U_IsValid(t *testing.T) {
 	t.Parallel()
 
@@ -539,23 +526,24 @@ func Test_U_IsValid(t *testing.T) {
 			ExpectedValid: true,
 		},
 		"non-left-terminating-empty-charval": {
-			// Issue #206: a = *"" is non-left-terminating; IsValid refuses it.
-			Grammar:   mustGrammar("a = *\"\"\r\n"),
-			Rulename:  "a",
-			Input:     []byte("test"),
-			ExpectErr: true,
+			// Issue #206: a = *"" is non-left-terminating, but it can still process the input!
+			Grammar:       mustGrammar("a = *\"\"\r\n"),
+			Rulename:      "a",
+			Input:         []byte("test"),
+			ExpectedValid: false,
+			ExpectErr:     false,
 		},
 		"direct-left-recursion": {
-			Grammar:   mustGrammar("s = s \"a\" / \"a\"\r\n"),
-			Rulename:  "s",
-			Input:     []byte("aaaa"),
-			ExpectErr: true,
+			Grammar:       mustGrammar("s = s \"a\" / \"a\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("aaaa"),
+			ExpectedValid: true, // It can actually find a path using the second alternative of s
 		},
 		"indirect-left-recursion": {
-			Grammar:   mustGrammar("s = t \"a\"\r\nt = s / \"b\"\r\n"),
-			Rulename:  "s",
-			Input:     []byte("ba"),
-			ExpectErr: true,
+			Grammar:       mustGrammar("s = t \"a\"\r\nt = s / \"b\"\r\n"),
+			Rulename:      "s",
+			Input:         []byte("ba"),
+			ExpectedValid: true, // It can actually find a path using the second alternative of t
 		},
 		"unknown-rule": {
 			Grammar:   mustGrammar("s = \"a\"\r\n"),

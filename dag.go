@@ -105,8 +105,6 @@ func (g *Grammar) IsDAG() bool {
 // RuleContainsCycle returns whether the rule contains a cycle or not.
 // It travels through the whole rule dependency graph, such that
 // it checks if the rule is cyclic AND if one of its dependency is too.
-//
-// WARNING: it is different than IsLeftTerminating, refer to its doc.
 func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
 	// Check the rule exists
 	rule := GetRule(rulename, g.Rulemap)
@@ -125,32 +123,6 @@ func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
 	scc.find()
 
 	return ruleContainsCycle(scc.sccs, rulename), nil
-}
-
-// IsLeftTerminating returns whether the rule is not left terminating.
-// It travels through the whole rule dependency graph, such that
-// it checks if the rule has a way to left terminate.
-//
-// Notice that it depends on the ordering your grammar, which could be
-// illustrated by the ABNF rule "element" that begins with the alternation
-// of a "rulename", which is terminating, and not by "option" or "group"
-// which are not.
-//
-// WARNING: it is different than RuleContainsCycle, refer to its doc.
-func (g *Grammar) IsLeftTerminating(rulename string) (bool, error) {
-	// Check the rule exists
-	rule := GetRule(rulename, g.Rulemap)
-	if rule == nil {
-		return false, &ErrRuleNotFound{
-			Rulename: rulename,
-		}
-	}
-
-	// Stack has the same signature as a rulemap in order to use getRuleIn for simplicity
-	stack := map[string]*Rule{
-		rulename: rule,
-	}
-	return isAltLeftTerminating(g, stack, rule.Alternation), nil
 }
 
 func isAltLeftTerminating(g *Grammar, stack map[string]*Rule, alt Alternation) bool {

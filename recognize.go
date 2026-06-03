@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	"strconv"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -23,6 +24,16 @@ type recognizer struct {
 	input      []byte
 	memo       map[string]map[int]bool // element.String()+"@"+index -> reachable end set
 	inProgress map[string]bool
+
+	// Left-recursion support. leftRec maps each left-recursive rule (lowercase
+	// name) to its left-corner SCC, grown jointly. growing holds the live seed
+	// of each rule currently being grown (key "rule@index"); a re-entrant call
+	// returns the seed instead of recursing. headActive counts the growing
+	// sessions in flight at each index, so we never memoize a result at a
+	// position whose seeds are still settling.
+	leftRec    map[string][]string
+	growing    map[string]map[int]bool
+	headActive map[int]int
 }
 
 func cloneSet(s map[int]bool) map[int]bool {
@@ -115,20 +126,90 @@ func (r *recognizer) reachRep(rep Repetition, index int) map[int]bool {
 }
 
 func (r *recognizer) reachElem(elem ElemItf, index int) map[int]bool {
+	// Left-recursive rulenames are resolved by seed-growing rather than the
+	// flat memoized recursion below (which would cut the recursion to empty and
+	// under-accept).
+	if rn, ok := elem.(ElemRulename); ok {
+		if scc, isLR := r.leftRec[strings.ToLower(rn.Name)]; isLR {
+			return r.reachLeftRec(strings.ToLower(rn.Name), scc, index)
+		}
+	}
+
 	key := elem.String() + "@" + strconv.Itoa(index)
 	if cached, ok := r.memo[key]; ok {
 		return cached
 	}
 	if r.inProgress[key] {
-		// Re-entry at the same position == non-progressing recursion. Return
-		// empty (sound under left-termination) instead of looping forever.
+		// Re-entry at the same position == non-progressing recursion in a rule
+		// not flagged left-recursive. Return empty (defense-in-depth) instead of
+		// looping forever.
 		return map[int]bool{}
 	}
 	r.inProgress[key] = true
 	out := r.computeElem(elem, index)
 	delete(r.inProgress, key)
-	r.memo[key] = cloneSet(out)
+	// Do not cache while a seed at this position is still growing: the result
+	// may depend on a seed that has not reached its fixpoint yet.
+	if r.headActive[index] == 0 {
+		r.memo[key] = cloneSet(out)
+	}
 	return out
+}
+
+// reachLeftRec computes the reachable end-set of a left-recursive rule at index
+// by growing the whole left-corner SCC from the empty seed to its least
+// fixpoint. Each growth step adds end-positions (bounded by len(input)), so it
+// terminates; a re-entrant call to any SCC member at the same index returns the
+// current seed. Pure (base-less) left recursion correctly settles at the empty
+// set, i.e. "no match".
+func (r *recognizer) reachLeftRec(name string, scc []string, index int) map[int]bool {
+	sidx := "@" + strconv.Itoa(index)
+	key := name + sidx
+	if cached, ok := r.memo[key]; ok {
+		return cached
+	}
+	if seed, ok := r.growing[key]; ok {
+		return seed // re-entrant: return the current seed
+	}
+
+	r.headActive[index]++
+	keys := make([]string, len(scc))
+	for i, x := range scc {
+		keys[i] = x + sidx
+		r.growing[keys[i]] = map[int]bool{}
+	}
+	for changed := true; changed; {
+		changed = false
+		for i, x := range scc {
+			rule := GetRule(x, r.g.Rulemap)
+			if rule == nil {
+				continue
+			}
+			ns := r.reachAlt(rule.Alternation, index)
+			cur := r.growing[keys[i]]
+			for e := range ns {
+				if !cur[e] {
+					cur[e] = true
+					changed = true
+				}
+			}
+		}
+	}
+	r.headActive[index]--
+
+	canMemo := r.headActive[index] == 0
+	var result map[int]bool
+	for i, x := range scc {
+		v := r.growing[keys[i]]
+		delete(r.growing, keys[i])
+		if canMemo {
+			r.memo[keys[i]] = cloneSet(v)
+		}
+		if x == name {
+			result = cloneSet(v)
+		}
+	}
+	return result
 }
 
 func (r *recognizer) computeElem(elem ElemItf, index int) map[int]bool {
