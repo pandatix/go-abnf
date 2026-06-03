@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	uuid "github.com/hashicorp/go-uuid"
@@ -180,403 +182,660 @@ func WithRepetitionThreshold(threshold int) TGOption {
 	return repetitionThreshold(threshold)
 }
 
-func (tg *TransitionGraph) Reader() *TransitionGraphReader {
-	return &TransitionGraphReader{
-		tg:      tg,
-		thread:  []threadTuple{},
-		cpCache: map[string]bool{},
-		nodeIdx: map[string]int{},
-		edgePos: map[int64][]int{},
-	}
+// CoverageMode selects what set of strings a TransitionGraphReader produces.
+type CoverageMode int
+
+const (
+	// CoverageAllTrails (mode A, the default) emits every entrypoint->endpoint
+	// trail (a walk using each directed edge at most once) and, for each trail,
+	// every combination of its nodes' terminal variations. It is finite and
+	// terminating for any graph, but on dense graphs or wide range/charval nodes
+	// the number of trail x variation combinations can be very large.
+	CoverageAllTrails CoverageMode = iota
+
+	// CoverageCompact (mode B) emits a small set of strings that still covers
+	// every reachable vertex, every edge, and every terminal value (each charval
+	// casing, each numval range value) at least once, then stops. Its size is
+	// bounded by roughly (#edges + #vertices + sum of per-node variations), so it
+	// stays small even for grammars where CoverageAllTrails explodes.
+	CoverageCompact
+)
+
+// ReaderOption configures a TransitionGraphReader.
+type ReaderOption interface {
+	apply(*readerOptions)
 }
 
+type readerOptions struct {
+	mode CoverageMode
+}
+
+type coverageModeOption CoverageMode
+
+func (o coverageModeOption) apply(opts *readerOptions) {
+	opts.mode = CoverageMode(o)
+}
+
+// WithCoverageMode selects the coverage strategy of the reader (CoverageAllTrails
+// by default, or CoverageCompact for a bounded covering set).
+func WithCoverageMode(mode CoverageMode) ReaderOption {
+	return coverageModeOption(mode)
+}
+
+func (tg *TransitionGraph) Reader(opts ...ReaderOption) *TransitionGraphReader {
+	ro := readerOptions{mode: CoverageAllTrails}
+	for _, o := range opts {
+		o.apply(&ro)
+	}
+	return &TransitionGraphReader{tg: tg, mode: ro.mode}
+}
+
+// TransitionGraphReader produces a finite set of strings that COVERS the
+// transition graph: every reachable vertex and edge that lies on some
+// entrypoint->endpoint walk appears in at least one produced string. It does so
+// by enumerating every entrypoint->endpoint *trail* (a walk that uses each
+// directed edge at most once) in order of increasing length, and for each trail
+// every combination of its nodes' terminal variations (char-val casing,
+// num-val ranges). Trails are bounded by the number of edges, so the set is
+// finite and enumeration always terminates -- for any graph, cyclic or not.
 type TransitionGraphReader struct {
-	// tg is the transition graph to read from.
 	tg *TransitionGraph
 
-	// thread is the current travel path through tg.
-	thread []threadTuple
+	mode CoverageMode
+	all  map[string]*Node // every node reachable from the entrypoints
 
-	// cpCache memoizes canProduce(node) per node ID. canProduce is a pure
-	// function of the (immutable) graph, so it is identical on every call for
-	// a given node; without this it was recomputed -- via a full subgraph DFS
-	// with a fresh map -- at every node visit of every Scan, which dominated
-	// enumeration cost. Caching it does not change what is produced.
-	cpCache map[string]bool
+	// CoverageCompact precomputed output.
+	prods        [][]byte
+	prodIdx      int
+	builtCompact bool
 
-	// Incremental index of the consecutive (from->to) edges currently in
-	// `thread`. transitionInThread / hasNextNode used to scan the whole thread
-	// (O(len)) on every call, which the profiler showed was ~85% of Scan time.
-	// With this index, membership is O(1). nodeIdx interns node IDs to dense
-	// ints for cheap keys; edgePos maps an edge key to the (ascending) list of
-	// positions i where thread[i]->thread[i+1] is that edge; edgeAt[i] is the
-	// edge key at position i. All thread mutations go through pushTuple /
-	// truncateThread so the index can never desync.
-	nodeIdx map[string]int
-	edgePos map[int64][]int
-	edgeAt  []int64
+	prepared bool
+	entries  []*Node         // entrypoints that can reach an endpoint via producing nodes
+	endSet   map[string]bool // endpoint node IDs
+	canReach map[string]bool // node can reach an endpoint via producing nodes
+
+	// Trail enumeration state.
+	length          int            // current trail length (number of nodes)
+	stack           []pathFrame    // current trail being walked
+	usedEdges       map[string]int // edges currently on the trail (>0 == used)
+	levelHadAnyPath bool           // any length-`length` trail seen this level
+	exhausted       bool           // no more trails (coverage complete)
+
+	// Variation odometer for the current trail.
+	havePath bool
+	varIdx   []int32
+	varTot   []int32
+
+	// Staged production.
+	staged    []byte
+	hasStaged bool
 }
 
-type threadTuple struct {
-	// node id
-	id string
-
-	// next node position in slice
-	pos int
-
-	// terminal node position counter (used for charval/numval)
-	// for charvals it is used as a mask to know whether to lower or upper a char
-	tpos int32
-
-	// total possible variations (used for charval/numval)
-	vtotal int32
-
-	// justCut defines if the previous iteration was a cut over the thread
-	// for later iterations.
-	// If true, no deepest travel should be performed on the endpoint node.
-	justCut bool
+type pathFrame struct {
+	node    *Node
+	cursor  int
+	allowed []*Node // children selectable at this depth given the trail prefix
 }
 
-func (tgr *TransitionGraphReader) Next() bool {
-	// Select root entrypoints to start from
-	idx := 0
-	if len(tgr.thread) != 0 {
-		// If already defined, go on with it
-		idx = tgr.thread[0].pos
+func tgNodeID(n *Node) string {
+	if n == nil {
+		return ""
 	}
-	if idx == len(tgr.tg.Entrypoints) {
-		return false
-	}
-
-	// produce iff rules are deflated if necessary
-	node := tgr.tg.Entrypoints[idx]
-	return tgr.tg.options.deflateRules || tgr.canProduceCached(node)
+	return n.ID
 }
 
-func (tgr *TransitionGraphReader) Scan() []byte {
-	// Select root entrypoints to start from
-	idx := 0
-	if len(tgr.thread) != 0 {
-		// If already defined, go on with it
-		idx = tgr.thread[0].pos
-	} else {
-		// If the thread has not been started yet, create it
-		tgr.thread = []threadTuple{{}} // add initial tuple
-	}
-
-	// Don't read out of bounds i.e. don't produce once traveled
-	// through all the transition graph
-	if idx == len(tgr.tg.Entrypoints) {
-		return nil
-	}
-
-	// Select proper entrypoint
-	n := tgr.tg.Entrypoints[idx]
-
-	// If is the empty node, prepare to go to next entrypoint and
-	// return an empty slice
+// producing reports whether a node can emit terminal bytes. Rulename nodes
+// (present only when rules are not deflated) cannot, so no trail may pass
+// through them.
+func producing(n *Node) bool {
 	if n == emptyNode {
-		tgr.thread[0].pos++
-		return []byte{}
+		return true
 	}
-
-	// Else it is a non-empty node, so recurse through the thread
-	var b []byte
-	roll := tgr.produce(n, 1, &b)
-	if roll {
-		tgr.thread[0].pos++
-		tgr.truncateThread(1)
-	}
-	return b
-}
-
-func (tgr *TransitionGraphReader) produce(node *Node, threadIndex int, out *[]byte) (roll bool) {
-	// produce iff rules are deflated and if necessary
-	if !tgr.tg.options.deflateRules && !tgr.canProduceCached(node) {
+	switch n.Elem.(type) {
+	case ElemCharVal, ElemNumVal:
+		return true
+	default:
 		return false
 	}
+}
 
-	isInThread := len(tgr.thread) > threadIndex
-	isLast := len(node.Nexts) == 0
-	isEndpoint := slices.Contains(tgr.tg.Endpoints, node)
-	isFullyVariated := false
-	tpos := int32(0)
-	if isInThread {
-		tpos = tgr.thread[threadIndex].tpos
+func (tgr *TransitionGraphReader) prepare() {
+	if tgr.prepared {
+		return
 	}
-	vtotal := int32(0)
+	tgr.prepared = true
+	tgr.endSet = map[string]bool{}
+	for _, e := range tgr.tg.Endpoints {
+		tgr.endSet[tgNodeID(e)] = true
+	}
+	tgr.usedEdges = map[string]int{}
 
-	// Produce this node content
-	var prod []byte
-	switch v := node.Elem.(type) {
-	case ElemCharVal:
-		prod = make([]byte, 0, len(v.Values))
-		if v.Sensitive {
-			// Produce this whole char value, no need to variate anything
-			for _, val := range v.Values {
-				prod = append(prod, string(val)...)
+	// Collect every node reachable from the entrypoints.
+	all := map[string]*Node{}
+	var collect func(n *Node)
+	collect = func(n *Node) {
+		id := tgNodeID(n)
+		if _, ok := all[id]; ok {
+			return
+		}
+		all[id] = n
+		if n == emptyNode {
+			return // the empty sentinel ((*Node)(nil)) has no successors
+		}
+		for _, s := range n.Nexts {
+			collect(s)
+		}
+	}
+	for _, e := range tgr.tg.Entrypoints {
+		collect(e)
+	}
+	tgr.all = all
+
+	// canReach[n] = n can produce AND (n is an endpoint OR some producing
+	// successor of n can reach an endpoint). Monotonic fixpoint.
+	tgr.canReach = map[string]bool{}
+	for changed := true; changed; {
+		changed = false
+		for id, n := range all {
+			if tgr.canReach[id] || !producing(n) {
+				continue
 			}
-			vtotal++ // still count it else we won't know we "variated" it
-		} else {
-			// Copy each one and make it case-variant if necessary
-			for i, r := range v.Values {
-				isLower := r >= 'a' && r <= 'z'
-				isUpper := r >= 'A' && r <= 'Z'
-				variate := isLower || isUpper
-
-				// Count all possible variations
-				vtotal++
-				if variate {
-					vtotal++
+			ok := tgr.endSet[id]
+			if !ok && n != emptyNode {
+				for _, sc := range n.Nexts {
+					if producing(sc) && tgr.canReach[tgNodeID(sc)] {
+						ok = true
+						break
+					}
 				}
+			}
+			if ok {
+				tgr.canReach[id] = true
+				changed = true
+			}
+		}
+	}
 
-				// Write down
-				if !variate {
-					prod = append(prod, string(r)...)
-				} else {
-					// Compute lower and upper variants
-					lower := r
-					if isUpper {
-						lower = lower - 'A' + 'a'
-					}
-					upper := r
-					if isLower {
-						upper = upper - 'a' + 'A'
-					}
+	for _, e := range tgr.tg.Entrypoints {
+		if producing(e) && tgr.canReach[tgNodeID(e)] {
+			tgr.entries = append(tgr.entries, e)
+		}
+	}
+}
 
-					// Append the good one in its spot
-					if (tpos>>i)%2 == 1 {
-						prod = append(prod, string(upper)...)
-					} else {
-						prod = append(prod, string(lower)...)
-					}
+func edgeStr(from, to *Node) string {
+	return tgNodeID(from) + ">" + tgNodeID(to)
+}
+
+// allowedAt returns the children selectable at depth d given the current trail
+// prefix: successors that can still reach an endpoint and whose edge is not yet
+// used on this trail. At depth 0 the "children" are the entrypoints.
+func (tgr *TransitionGraphReader) allowedAt(d int) []*Node {
+	if d == 0 {
+		return tgr.entries
+	}
+	parent := tgr.stack[d-1].node
+	if parent == emptyNode {
+		return nil // empty sentinel has no successors
+	}
+	var out []*Node
+	for _, sc := range parent.Nexts {
+		if !tgr.canReach[tgNodeID(sc)] {
+			continue
+		}
+		if tgr.usedEdges[edgeStr(parent, sc)] > 0 {
+			continue
+		}
+		out = append(out, sc)
+	}
+	return out
+}
+
+func (tgr *TransitionGraphReader) pushFirst(d int) bool {
+	allowed := tgr.allowedAt(d)
+	if len(allowed) == 0 {
+		return false
+	}
+	node := allowed[0]
+	if d >= 1 {
+		tgr.usedEdges[edgeStr(tgr.stack[d-1].node, node)]++
+	}
+	tgr.stack = append(tgr.stack, pathFrame{node: node, cursor: 0, allowed: allowed})
+	return true
+}
+
+func (tgr *TransitionGraphReader) bump() bool {
+	for len(tgr.stack) > 0 {
+		d := len(tgr.stack) - 1
+		f := &tgr.stack[d]
+		if d >= 1 {
+			tgr.usedEdges[edgeStr(tgr.stack[d-1].node, f.node)]--
+		}
+		if f.cursor+1 < len(f.allowed) {
+			f.cursor++
+			f.node = f.allowed[f.cursor]
+			if d >= 1 {
+				tgr.usedEdges[edgeStr(tgr.stack[d-1].node, f.node)]++
+			}
+			return true
+		}
+		tgr.stack = tgr.stack[:d]
+	}
+	return false
+}
+
+// nextLeaf advances the trail to the next walk of exactly tgr.length nodes.
+func (tgr *TransitionGraphReader) nextLeaf() bool {
+	L := tgr.length
+	for {
+		switch {
+		case len(tgr.stack) == L:
+			if !tgr.bump() {
+				return false
+			}
+		case len(tgr.stack) < L:
+			if !tgr.pushFirst(len(tgr.stack)) {
+				if !tgr.bump() {
+					return false
 				}
 			}
 		}
+		if len(tgr.stack) == L {
+			tgr.levelHadAnyPath = true
+			return true
+		}
+	}
+}
+
+func (tgr *TransitionGraphReader) resetLevel() {
+	tgr.stack = tgr.stack[:0]
+	for k := range tgr.usedEdges {
+		delete(tgr.usedEdges, k)
+	}
+	tgr.levelHadAnyPath = false
+}
+
+// advancePath sets tgr.stack to the next entrypoint->endpoint trail, returning
+// false once every trail has been produced (coverage complete).
+func (tgr *TransitionGraphReader) advancePath() bool {
+	for {
+		if tgr.length == 0 {
+			tgr.length = 1
+			tgr.resetLevel()
+		}
+		for tgr.nextLeaf() {
+			if tgr.endSet[tgNodeID(tgr.stack[len(tgr.stack)-1].node)] {
+				return true
+			}
+		}
+		if !tgr.levelHadAnyPath {
+			return false // no trail this long exists => done
+		}
+		tgr.length++
+		tgr.resetLevel()
+	}
+}
+
+func (tgr *TransitionGraphReader) ensureStaged() {
+	if tgr.hasStaged || tgr.exhausted {
+		return
+	}
+	if !tgr.havePath {
+		if !tgr.advancePath() {
+			tgr.exhausted = true
+			return
+		}
+		tgr.havePath = true
+		tgr.varTot = tgr.varTot[:0]
+		tgr.varIdx = tgr.varIdx[:0]
+		for i := range tgr.stack {
+			_, vt := nodeEmit(tgr.stack[i].node, 0)
+			if vt < 1 {
+				vt = 1
+			}
+			tgr.varTot = append(tgr.varTot, vt)
+			tgr.varIdx = append(tgr.varIdx, 0)
+		}
+	}
+	tgr.staged = tgr.staged[:0]
+	for i := range tgr.stack {
+		b, _ := nodeEmit(tgr.stack[i].node, tgr.varIdx[i])
+		tgr.staged = append(tgr.staged, b...)
+	}
+	tgr.hasStaged = true
+}
+
+func (tgr *TransitionGraphReader) consumeStaged() {
+	tgr.hasStaged = false
+	i := len(tgr.varIdx) - 1
+	for i >= 0 {
+		tgr.varIdx[i]++
+		if tgr.varIdx[i] < tgr.varTot[i] {
+			break
+		}
+		tgr.varIdx[i] = 0
+		i--
+	}
+	if i < 0 {
+		tgr.havePath = false // variations exhausted -> move to next trail
+	}
+}
+
+// Next reports whether another covering string is available.
+func (tgr *TransitionGraphReader) Next() bool {
+	tgr.prepare()
+	if tgr.mode == CoverageCompact {
+		tgr.buildCompact()
+		return tgr.prodIdx < len(tgr.prods)
+	}
+	tgr.ensureStaged()
+	return tgr.hasStaged
+}
+
+// Scan returns the next covering string, or nil once coverage is complete.
+func (tgr *TransitionGraphReader) Scan() []byte {
+	tgr.prepare()
+	if tgr.mode == CoverageCompact {
+		tgr.buildCompact()
+		if tgr.prodIdx >= len(tgr.prods) {
+			return nil
+		}
+		out := tgr.prods[tgr.prodIdx]
+		tgr.prodIdx++
+		return out
+	}
+	tgr.ensureStaged()
+	if !tgr.hasStaged {
+		return nil
+	}
+	out := make([]byte, len(tgr.staged))
+	copy(out, tgr.staged)
+	tgr.consumeStaged()
+	return out
+}
+
+// buildCompact precomputes the CoverageCompact output: a bounded set of strings
+// that together visit every reachable vertex, traverse every edge, and emit every
+// terminal value (each charval casing, each numval range value) at least once.
+// It is greedy, not minimal, but its size is bounded by roughly
+// (#edges + #vertices + sum of per-node variation counts).
+func (tgr *TransitionGraphReader) buildCompact() {
+	if tgr.builtCompact {
+		return
+	}
+	tgr.builtCompact = true
+
+	viable := func(n *Node) []*Node {
+		if n == emptyNode {
+			return nil
+		}
+		var out []*Node
+		for _, sc := range n.Nexts {
+			if producing(sc) && tgr.canReach[tgNodeID(sc)] {
+				out = append(out, sc)
+			}
+		}
+		return out
+	}
+
+	// Forward BFS from entrypoints: coverable vertices, edges, and entry->node
+	// shortest-path predecessors.
+	predEntry := map[string]*Node{}
+	nodeByID := map[string]*Node{}
+	type edge struct{ u, w *Node }
+	var allEdges []edge
+	seenEdge := map[string]bool{}
+	var queue []*Node
+	for _, e := range tgr.entries {
+		id := tgNodeID(e)
+		if _, ok := predEntry[id]; !ok {
+			predEntry[id] = e
+			nodeByID[id] = e
+			queue = append(queue, e)
+		}
+	}
+	for len(queue) > 0 {
+		n := queue[0]
+		queue = queue[1:]
+		for _, sc := range viable(n) {
+			sid := tgNodeID(sc)
+			ek := tgNodeID(n) + ">" + sid
+			if !seenEdge[ek] {
+				seenEdge[ek] = true
+				allEdges = append(allEdges, edge{n, sc})
+			}
+			if _, ok := predEntry[sid]; !ok {
+				predEntry[sid] = n
+				nodeByID[sid] = sc
+				queue = append(queue, sc)
+			}
+		}
+	}
+
+	// Backward BFS from endpoints: node->endpoint shortest-path successors.
+	revAdj := map[string][]*Node{}
+	for _, n := range nodeByID {
+		for _, sc := range viable(n) {
+			sid := tgNodeID(sc)
+			revAdj[sid] = append(revAdj[sid], n)
+		}
+	}
+	succEnd := map[string]*Node{}
+	var q2 []*Node
+	for id, n := range nodeByID {
+		if tgr.endSet[id] {
+			succEnd[id] = n
+			q2 = append(q2, n)
+		}
+	}
+	for len(q2) > 0 {
+		n := q2[0]
+		q2 = q2[1:]
+		for _, p := range revAdj[tgNodeID(n)] {
+			pid := tgNodeID(p)
+			if _, ok := succEnd[pid]; !ok {
+				succEnd[pid] = n
+				q2 = append(q2, p)
+			}
+		}
+	}
+
+	entryPath := func(u *Node) []*Node {
+		var rev []*Node
+		cur := u
+		for {
+			rev = append(rev, cur)
+			id := tgNodeID(cur)
+			p := predEntry[id]
+			if tgNodeID(p) == id {
+				break
+			}
+			cur = p
+		}
+		for i, j := 0, len(rev)-1; i < j; i, j = i+1, j-1 {
+			rev[i], rev[j] = rev[j], rev[i]
+		}
+		return rev
+	}
+	endPath := func(w *Node) []*Node {
+		var out []*Node
+		cur := w
+		for {
+			out = append(out, cur)
+			id := tgNodeID(cur)
+			sc := succEnd[id]
+			if tgNodeID(sc) == id {
+				break
+			}
+			cur = sc
+		}
+		return out
+	}
+
+	coveredV := map[string]bool{}
+	coveredE := map[string]bool{}
+	coveredVal := map[string]bool{}
+	valKey := func(n *Node, vi int32) string { return tgNodeID(n) + "#" + strconv.Itoa(int(vi)) }
+
+	markWalk := func(w []*Node) {
+		for i, n := range w {
+			coveredV[tgNodeID(n)] = true
+			if i+1 < len(w) {
+				coveredE[tgNodeID(n)+">"+tgNodeID(w[i+1])] = true
+			}
+		}
+	}
+	emit := func(w []*Node, force bool) bool {
+		va := make([]int32, len(w))
+		pending := map[string]bool{}
+		for p, n := range w {
+			_, vt := nodeEmit(n, 0)
+			if vt < 1 {
+				vt = 1
+			}
+			var chosen int32
+			for vi := int32(0); vi < vt; vi++ {
+				k := valKey(n, vi)
+				if !coveredVal[k] && !pending[k] {
+					chosen = vi
+					pending[k] = true
+					break
+				}
+			}
+			va[p] = chosen
+		}
+		if !force && len(pending) == 0 {
+			return false
+		}
+		for k := range pending {
+			coveredVal[k] = true
+		}
+		var bs []byte
+		for p, n := range w {
+			b, _ := nodeEmit(n, va[p])
+			bs = append(bs, b...)
+		}
+		tgr.prods = append(tgr.prods, bs)
+		return true
+	}
+
+	var walks [][]*Node
+
+	sort.Slice(allEdges, func(i, j int) bool {
+		ui, uj := tgNodeID(allEdges[i].u), tgNodeID(allEdges[j].u)
+		if ui != uj {
+			return ui < uj
+		}
+		return tgNodeID(allEdges[i].w) < tgNodeID(allEdges[j].w)
+	})
+	for _, e := range allEdges {
+		ek := tgNodeID(e.u) + ">" + tgNodeID(e.w)
+		if coveredE[ek] {
+			continue
+		}
+		if _, ok := succEnd[tgNodeID(e.w)]; !ok {
+			continue
+		}
+		w := append(entryPath(e.u), endPath(e.w)...)
+		walks = append(walks, w)
+		emit(w, true)
+		markWalk(w)
+	}
+
+	vids := make([]string, 0, len(predEntry))
+	for id := range predEntry {
+		vids = append(vids, id)
+	}
+	sort.Strings(vids)
+	for _, id := range vids {
+		if coveredV[id] {
+			continue
+		}
+		if _, ok := succEnd[id]; !ok {
+			continue
+		}
+		v := nodeByID[id]
+		var w []*Node
+		if tgr.endSet[id] {
+			w = entryPath(v)
+		} else {
+			ep := endPath(v)
+			w = append(entryPath(v), ep[1:]...)
+		}
+		walks = append(walks, w)
+		emit(w, true)
+		markWalk(w)
+	}
+
+	for _, w := range walks {
+		for emit(w, false) {
+		}
+	}
+}
+
+// nodeEmit returns the bytes a node emits for variation index tpos, and the
+// node's total number of variations. For a non-sensitive char-val the variations
+// are the 2^k casings of its k cased letters; for a num-val range, one byte per
+// value in the range.
+func nodeEmit(node *Node, tpos int32) (prod []byte, vtotal int32) {
+	if node == emptyNode {
+		return nil, 1
+	}
+	switch v := node.Elem.(type) {
+	case ElemCharVal:
+		if v.Sensitive {
+			for _, val := range v.Values {
+				prod = append(prod, string(val)...)
+			}
+			return prod, 1
+		}
+		var numVar int
+		for _, r := range v.Values {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				numVar++
+			}
+		}
+		vtotal = int32(1) << uint(numVar)
+		bit := uint(0)
+		for _, r := range v.Values {
+			isLower := r >= 'a' && r <= 'z'
+			isUpper := r >= 'A' && r <= 'Z'
+			if !isLower && !isUpper {
+				prod = append(prod, string(r)...)
+				continue
+			}
+			lower := r
+			if isUpper {
+				lower = lower - 'A' + 'a'
+			}
+			upper := r
+			if isLower {
+				upper = upper - 'a' + 'A'
+			}
+			if (tpos>>bit)&1 == 1 {
+				prod = append(prod, string(upper)...)
+			} else {
+				prod = append(prod, string(lower)...)
+			}
+			bit++
+		}
+		return prod, vtotal
 
 	case ElemNumVal:
-		// We can't easily determine the number of bytes this numval will use,
-		// at least len(v.Elems), at most 4*len(v.Elems) as Unicode code points can
-		// take up to 4 bytes.
-
 		switch v.Status {
 		case StatSeries:
 			for _, elem := range v.Elems {
 				r := numvalToRune(elem, v.Base)
 				prod = append(prod, []byte(string(r))...)
 			}
-			vtotal++ // still count it else we won't know we "variated" it
-
+			return prod, 1
 		case StatRange:
 			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
-			dst := max - min + 1
-
-			vtotal += dst // range of possibilities
-
-			// Iteratively select one by one
 			r := rune(min + tpos)
-			prod = append(prod, []byte(string(r))...)
-		}
-
-	default:
-		panic(fmt.Sprintf("should not happen, got type %v", v))
-	}
-
-	// Emit this frame's bytes into the shared buffer. Accumulating in a single
-	// buffer -- instead of returning per-frame slices and concatenating the
-	// suffix up the call stack -- makes a Scan linear in the produced length
-	// rather than quadratic. Children append after us, preserving byte order.
-	*out = append(*out, prod...)
-
-	isFullyVariated = tpos+1 == vtotal // +1 <= we completed an iteration
-
-	// Register in thread if not known yet
-	if !isInThread {
-		tgr.pushTuple(threadTuple{
-			id:     node.ID,
-			pos:    0,
-			tpos:   tpos, // don't increase yet, will do it later if required
-			vtotal: vtotal,
-		})
-	}
-
-	// If has nothing next (is an endpoint), return fast
-	// Stop here too if we are going to hit infinite recursions
-	if isLast || !tgr.hasUnusedNext(node, threadIndex+1, tgr.thread[threadIndex].pos) {
-		tgr.thread[threadIndex].tpos++ // btw we did an iteration :)
-		roll = isFullyVariated
-		return
-	}
-
-	// Else if the node is not the last in the travel but is an intermediary endpoint
-	// that was not yet registered in the thread, we should stop there for now and wait
-	// for the next iteration to go further.
-	// Works too if we just cut it.
-	if isEndpoint && (tgr.thread[threadIndex].justCut || !isInThread) {
-		tgr.thread[threadIndex].justCut = false // reset it
-		return
-	}
-
-	// From now on, the node is not the last in the travel.
-	// If in the thread we take the next node ID.
-	// Else (not yet in the thread) we add it.
-	nid := 0
-	if isInThread {
-		nid = tgr.thread[threadIndex].pos
-	} else {
-		tgr.pushTuple(threadTuple{
-			id:     node.ID,
-			pos:    0,
-			tpos:   tpos,
-			vtotal: vtotal,
-		})
-	}
-
-	// Select next node to produce on (one that is not already in the stack
-	// -> avoid infinite recursions).
-	nn := node.Nexts[nid]
-	for {
-		if !isInThread && tgr.edgeInPrefix(node.ID, nn.ID, len(tgr.thread)) {
-			nid++
-			nn = node.Nexts[nid]
-			continue
-		}
-		break
-	}
-	tgr.thread[threadIndex].pos = nid
-
-	// Produce next node and concat to this one's result
-	roll = tgr.produce(nn, threadIndex+1, out)
-	if roll {
-		// If it is non fully variated yet, move onto next variation and cut down thread
-		if !isFullyVariated {
-			tgr.thread[threadIndex].tpos++         // this thread tuple needs to go on the next char
-			tgr.thread[threadIndex].justCut = true // hey future iteration, we just cut it so if you need to produce, go on
-			tgr.truncateThread(threadIndex + 1)    // cut thread from here to regen nexts
-			return false
-		}
-
-		// If there are no nexts, propagate roll
-		if nid+1 == len(node.Nexts) {
-			return true
-		}
-
-		// Then if there is a non-processed (in stack) edge, roll on it, else propagate roll next
-		var nextNotInThread *int
-		for i := nid + 1; i < len(node.Nexts); i++ {
-			if !tgr.edgeInPrefix(node.ID, node.Nexts[i].ID, threadIndex+1) {
-				nextNotInThread = &i
-				break
-			}
-		}
-		if nextNotInThread != nil {
-			tgr.truncateThread(threadIndex + 1)
-			tgr.thread[threadIndex].pos = *nextNotInThread
-			tgr.thread[threadIndex].tpos = 0
-			tgr.thread[threadIndex].vtotal = 0
-
-			return false
-		}
-		return isFullyVariated
-	}
-	return roll
-}
-
-func edgeKey(from, to int) int64 { return int64(from)<<32 | int64(to) }
-
-func (tgr *TransitionGraphReader) intern(id string) int {
-	if v, ok := tgr.nodeIdx[id]; ok {
-		return v
-	}
-	v := len(tgr.nodeIdx)
-	tgr.nodeIdx[id] = v
-	return v
-}
-
-// pushTuple appends t to the thread and registers the edge it introduces.
-func (tgr *TransitionGraphReader) pushTuple(t threadTuple) {
-	tgr.thread = append(tgr.thread, t)
-	n := len(tgr.thread)
-	if n < 2 {
-		return
-	}
-	k := edgeKey(tgr.intern(tgr.thread[n-2].id), tgr.intern(tgr.thread[n-1].id))
-	tgr.edgePos[k] = append(tgr.edgePos[k], n-2) // positions appended ascending
-	tgr.edgeAt = append(tgr.edgeAt, k)
-}
-
-// truncateThread shrinks the thread to length n, unregistering the edges that
-// disappear (those at positions >= n-1). Edges are removed top-down, matching
-// the ascending order they were pushed in.
-func (tgr *TransitionGraphReader) truncateThread(n int) {
-	for i := len(tgr.edgeAt) - 1; i >= n-1 && i >= 0; i-- {
-		k := tgr.edgeAt[i]
-		ps := tgr.edgePos[k]
-		if len(ps) > 0 && ps[len(ps)-1] == i {
-			if len(ps) == 1 {
-				delete(tgr.edgePos, k)
-			} else {
-				tgr.edgePos[k] = ps[:len(ps)-1]
-			}
+			return []byte(string(r)), max - min + 1
 		}
 	}
-
-	cut := max(n-1, 0)
-	if cut <= len(tgr.edgeAt) {
-		tgr.edgeAt = tgr.edgeAt[:cut]
-	}
-	tgr.thread = tgr.thread[:n]
-}
-
-// edgeInPrefix reports, in O(1), whether edge from->to occurs within
-// thread[:m] (at some position i <= m-2). Replaces transitionInThread.
-func (tgr *TransitionGraphReader) edgeInPrefix(fromID, toID string, m int) bool {
-	ps := tgr.edgePos[edgeKey(tgr.intern(fromID), tgr.intern(toID))]
-	return len(ps) > 0 && ps[0] <= m-2 // ps ascending -> ps[0] is the earliest
-}
-
-// hasUnusedNext reports whether node has an outgoing edge (within thread[:m])
-// not yet taken, scanning Nexts[pos:]. Replaces hasNextNode.
-func (tgr *TransitionGraphReader) hasUnusedNext(node *Node, m, pos int) bool {
-	for _, rem := range node.Nexts[pos:] {
-		if !tgr.edgeInPrefix(node.ID, rem.ID, m) {
-			return true
-		}
-	}
-	return false
-}
-
-// canProduceCached memoizes canProduce(node) for the lifetime of the reader.
-func (tgr *TransitionGraphReader) canProduceCached(node *Node) bool {
-	if node == emptyNode {
-		return true
-	}
-	if v, ok := tgr.cpCache[node.ID]; ok {
-		return v
-	}
-	v := canProduce(node, map[string]struct{}{})
-	tgr.cpCache[node.ID] = v
-	return v
-}
-
-func canProduce(node *Node, done map[string]struct{}) bool {
-	if node == emptyNode {
-		done["empty"] = struct{}{}
-		return true
-	}
-	done[node.ID] = struct{}{}
-	if _, ok := node.Elem.(ElemRulename); ok {
-		return false
-	}
-	for _, next := range node.Nexts {
-		if _, ok := done[next.ID]; ok {
-			continue
-		}
-		if !canProduce(next, done) {
-			return false
-		}
-	}
-	return true
+	return nil, 1
 }
 
 type tgmachine struct {
@@ -977,7 +1236,7 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 				n := newNode(ElemNumVal{
 					Base:   v.Base,
 					Status: StatSeries,
-					Elems:  []string{string(rune(i))},
+					Elems:  []string{int32ToNumval(i, v.Base)},
 				})
 				entrypoints = append(entrypoints, n)
 				endpoints = append(endpoints, n)

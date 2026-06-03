@@ -1,8 +1,24 @@
 package goabnf
 
 import (
+	"strconv"
 	"strings"
 )
+
+// int32ToNumval converts an integer value into its numeric-string representation
+// in the given base. It is the inverse of numvalToInt32 and produces the form
+// stored in an ElemNumVal's Elems (e.g. 97 in base "x" -> "61").
+func int32ToNumval(v int32, base string) string {
+	switch base {
+	case "B", "b":
+		return strconv.FormatInt(int64(v), 2)
+	case "D", "d":
+		return strconv.FormatInt(int64(v), 10)
+	case "X", "x":
+		return strings.ToUpper(strconv.FormatInt(int64(v), 16))
+	}
+	return strconv.FormatInt(int64(v), 10)
+}
 
 // numvalToRune converts a numeric value given its base into the corresponding rune.
 func numvalToRune(str, base string) rune {
