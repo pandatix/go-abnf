@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 
 	uuid "github.com/hashicorp/go-uuid"
@@ -582,17 +581,25 @@ func (tgr *TransitionGraphReader) buildCompact() {
 	// shortest-path predecessors.
 	predEntry := map[string]*Node{}
 	nodeByID := map[string]*Node{}
+	discOrder := map[string]int{} // stable BFS discovery index per node
+	var disc []*Node              // nodes in discovery order
 	type edge struct{ u, w *Node }
 	var allEdges []edge
 	seenEdge := map[string]bool{}
 	var queue []*Node
-	for _, e := range tgr.entries {
-		id := tgNodeID(e)
-		if _, ok := predEntry[id]; !ok {
-			predEntry[id] = e
-			nodeByID[id] = e
-			queue = append(queue, e)
+	see := func(n *Node) {
+		id := tgNodeID(n)
+		if _, ok := predEntry[id]; ok {
+			return
 		}
+		predEntry[id] = n
+		nodeByID[id] = n
+		discOrder[id] = len(disc)
+		disc = append(disc, n)
+		queue = append(queue, n)
+	}
+	for _, e := range tgr.entries {
+		see(e)
 	}
 	for len(queue) > 0 {
 		n := queue[0]
@@ -607,14 +614,19 @@ func (tgr *TransitionGraphReader) buildCompact() {
 			if _, ok := predEntry[sid]; !ok {
 				predEntry[sid] = n
 				nodeByID[sid] = sc
+				discOrder[sid] = len(disc)
+				disc = append(disc, sc)
 				queue = append(queue, sc)
 			}
 		}
 	}
 
 	// Backward BFS from endpoints: node->endpoint shortest-path successors.
+	// Node IDs are random UUIDs, so we order everything by stable BFS discovery
+	// index instead -- otherwise the chosen shortest paths (and thus the covering
+	// set) would vary between builds.
 	revAdj := map[string][]*Node{}
-	for _, n := range nodeByID {
+	for _, n := range disc {
 		for _, sc := range viable(n) {
 			sid := tgNodeID(sc)
 			revAdj[sid] = append(revAdj[sid], n)
@@ -622,9 +634,9 @@ func (tgr *TransitionGraphReader) buildCompact() {
 	}
 	succEnd := map[string]*Node{}
 	var q2 []*Node
-	for id, n := range nodeByID {
-		if tgr.endSet[id] {
-			succEnd[id] = n
+	for _, n := range disc {
+		if tgr.endSet[tgNodeID(n)] {
+			succEnd[tgNodeID(n)] = n
 			q2 = append(q2, n)
 		}
 	}
@@ -674,8 +686,10 @@ func (tgr *TransitionGraphReader) buildCompact() {
 
 	coveredV := map[string]bool{}
 	coveredE := map[string]bool{}
-	coveredVal := map[string]bool{}
-	valKey := func(n *Node, vi int32) string { return tgNodeID(n) + "#" + strconv.Itoa(int(vi)) }
+	// nextVal[id] is the smallest variation index of a node not yet emitted.
+	// Values are always taken in increasing order, so a forward cursor per node
+	// makes value coverage O(total values) instead of O(sum of width^2).
+	nextVal := map[string]int32{}
 
 	markWalk := func(w []*Node) {
 		for i, n := range w {
@@ -687,28 +701,28 @@ func (tgr *TransitionGraphReader) buildCompact() {
 	}
 	emit := func(w []*Node, force bool) bool {
 		va := make([]int32, len(w))
-		pending := map[string]bool{}
+		claimed := map[string]int32{} // fresh values taken for each node in THIS emit
+		newCount := 0
 		for p, n := range w {
+			id := tgNodeID(n)
 			_, vt := nodeEmit(n, 0)
 			if vt < 1 {
 				vt = 1
 			}
-			var chosen int32
-			for vi := int32(0); vi < vt; vi++ {
-				k := valKey(n, vi)
-				if !coveredVal[k] && !pending[k] {
-					chosen = vi
-					pending[k] = true
-					break
-				}
+			claim := nextVal[id] + claimed[id]
+			if claim < vt {
+				va[p] = claim
+				claimed[id]++
+				newCount++
+			} else {
+				va[p] = 0 // all of this node's values already covered; reuse 0
 			}
-			va[p] = chosen
 		}
-		if !force && len(pending) == 0 {
+		if !force && newCount == 0 {
 			return false
 		}
-		for k := range pending {
-			coveredVal[k] = true
+		for id, c := range claimed {
+			nextVal[id] += c
 		}
 		var bs []byte
 		for p, n := range w {
@@ -721,12 +735,12 @@ func (tgr *TransitionGraphReader) buildCompact() {
 
 	var walks [][]*Node
 
-	sort.Slice(allEdges, func(i, j int) bool {
-		ui, uj := tgNodeID(allEdges[i].u), tgNodeID(allEdges[j].u)
+	sort.SliceStable(allEdges, func(i, j int) bool {
+		ui, uj := discOrder[tgNodeID(allEdges[i].u)], discOrder[tgNodeID(allEdges[j].u)]
 		if ui != uj {
 			return ui < uj
 		}
-		return tgNodeID(allEdges[i].w) < tgNodeID(allEdges[j].w)
+		return discOrder[tgNodeID(allEdges[i].w)] < discOrder[tgNodeID(allEdges[j].w)]
 	})
 	for _, e := range allEdges {
 		ek := tgNodeID(e.u) + ">" + tgNodeID(e.w)
@@ -742,19 +756,14 @@ func (tgr *TransitionGraphReader) buildCompact() {
 		markWalk(w)
 	}
 
-	vids := make([]string, 0, len(predEntry))
-	for id := range predEntry {
-		vids = append(vids, id)
-	}
-	sort.Strings(vids)
-	for _, id := range vids {
+	for _, v := range disc {
+		id := tgNodeID(v)
 		if coveredV[id] {
 			continue
 		}
 		if _, ok := succEnd[id]; !ok {
 			continue
 		}
-		v := nodeByID[id]
 		var w []*Node
 		if tgr.endSet[id] {
 			w = entryPath(v)
@@ -794,6 +803,13 @@ func nodeEmit(node *Node, tpos int32) (prod []byte, vtotal int32) {
 			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
 				numVar++
 			}
+		}
+		// 2^numVar casings; cap to avoid int32 overflow on pathologically long
+		// case-insensitive literals (2^31 casings is unenumerable anyway). Letters
+		// beyond the cap are emitted lower-case only.
+		// XXX This is an arbitrary bound
+		if numVar > 30 {
+			numVar = 30
 		}
 		vtotal = int32(1) << uint(numVar)
 		bit := uint(0)
