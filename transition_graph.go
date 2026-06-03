@@ -41,6 +41,7 @@ func (g *Grammar) TransitionGraph(rulename string, opts ...TGOption) (*Transitio
 		deflateNumVals:      false,
 		deflateCharVals:     false,
 		repetitionThreshold: 256,
+		maxNodes:            0, // 0 == unbounded (backward compatible)
 	}
 	for _, opt := range opts {
 		opt.apply(options)
@@ -104,6 +105,7 @@ type tgoptions struct {
 	deflateNumVals      bool
 	deflateCharVals     bool
 	repetitionThreshold int
+	maxNodes            int
 }
 
 type TGOption interface {
@@ -179,6 +181,77 @@ func (opt repetitionThreshold) apply(opts *tgoptions) {
 // Defaults to 256.
 func WithRepetitionThreshold(threshold int) TGOption {
 	return repetitionThreshold(threshold)
+}
+
+type maxNodesOption int
+
+func (opt maxNodesOption) apply(opts *tgoptions) {
+	opts.maxNodes = int(opt)
+}
+
+// WithMaxNodes bounds the total number of nodes the transition graph may
+// allocate during construction. Unlike WithRepetitionThreshold, which only caps
+// a single repetition, this bounds the *whole* graph and so also defends against
+// the combinatorial blow-up of nested repetitions (e.g. 10( 10( 10("a") ) )) and
+// of wide num-val ranges deflated with WithDeflateNumVals. When the bound would
+// be exceeded, construction stops with *ErrMaxNodesExceeded before the nodes are
+// allocated.
+//
+// A value <= 0 (the default) means unbounded, preserving the previous behaviour.
+// Set a positive bound when building transition graphs from untrusted grammars
+// to keep the work within a controlled domain.
+func WithMaxNodes(max int) TGOption {
+	return maxNodesOption(max)
+}
+
+// reserve accounts for n nodes about to be created, failing fast (before any
+// allocation) when the WithMaxNodes budget would be exceeded. It is a no-op when
+// the budget is unbounded.
+func (m *tgmachine) reserve(n int) error {
+	if m.options.maxNodes <= 0 {
+		return nil // unbounded
+	}
+	if n < 0 || m.nodeCount+n < 0 || m.nodeCount+n > m.options.maxNodes {
+		return &ErrMaxNodesExceeded{Max: m.options.maxNodes}
+	}
+	m.nodeCount += n
+	return nil
+}
+
+// reserveClones accounts for cloning the subgraph reachable from entries reps
+// times. When the budget is unbounded it does no work at all (in particular it
+// skips the reachability count), so the default path keeps its previous cost.
+func (m *tgmachine) reserveClones(reps int, entries []*Node) error {
+	if m.options.maxNodes <= 0 {
+		return nil
+	}
+	return m.reserve(reps * countReachable(entries))
+}
+
+// countReachable counts the distinct non-empty nodes reachable from entries,
+// i.e. how many nodes cloneTransitionGraph would clone.
+func countReachable(entries []*Node) int {
+	seen := map[string]bool{}
+	stack := make([]*Node, 0, len(entries))
+	for _, e := range entries {
+		if e != emptyNode {
+			stack = append(stack, e)
+		}
+	}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == emptyNode || seen[n.ID] {
+			continue
+		}
+		seen[n.ID] = true
+		for _, sc := range n.Nexts {
+			if sc != emptyNode && !seen[sc.ID] {
+				stack = append(stack, sc)
+			}
+		}
+	}
+	return len(seen)
 }
 
 // CoverageMode selects what set of strings a TransitionGraphReader produces.
@@ -858,6 +931,8 @@ type tgmachine struct {
 	options *tgoptions
 	grammar *Grammar
 	buf     map[string][2][]*Node
+
+	nodeCount int // nodes reserved so far, checked against options.maxNodes
 }
 
 func (m *tgmachine) altGraph(alt Alternation) (entrypoints []*Node, endpoints []*Node, err error) {
@@ -987,6 +1062,9 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 			if rep.Max > m.options.repetitionThreshold {
 				return nil, nil, errors.New("repetition threshold reached")
 			}
+			if err := m.reserveClones(rep.Max, elemi); err != nil {
+				return nil, nil, err
+			}
 			tgs, chi, _ := chainTransitionGraph(elemi, elemo, rep.Max)
 			entrypoints = appendNodes(entrypoints, chi...)
 			for _, tg := range tgs {
@@ -1007,6 +1085,9 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 			// min >= 1 && max = inf: n to infinity
 			if rep.Min > m.options.repetitionThreshold {
 				return nil, nil, errors.New("repetition threshold reached")
+			}
+			if err := m.reserveClones(rep.Min, elemi); err != nil {
+				return nil, nil, err
 			}
 			tgs, chi, cho := chainTransitionGraph(elemi, elemo, rep.Min)
 			entrypoints = appendNodes(entrypoints, chi...)
@@ -1038,6 +1119,9 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 			// Build the flat chain (not endpoints, except last)
 			firstI, lastO := elemi, elemo
 			if rep.Min > 1 {
+				if err := m.reserveClones(rep.Min, elemi); err != nil {
+					return nil, nil, err
+				}
 				_, firstI, lastO = chainTransitionGraph(elemi, elemo, rep.Min)
 			}
 			entrypoints = appendNodes(entrypoints, firstI...)
@@ -1046,6 +1130,9 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 			// Build remaining endpoints
 			remaining := rep.Max - rep.Min
 			if remaining > 0 {
+				if err := m.reserveClones(rep.Max-rep.Min, elemi); err != nil {
+					return nil, nil, err
+				}
 				tgs, chi, _ := chainTransitionGraph(elemi, elemo, rep.Max-rep.Min)
 				for _, tg := range tgs {
 					endpoints = appendNodes(endpoints, tg.Endpoints...)
@@ -1179,10 +1266,17 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 		}
 
 		if !m.options.deflateCharVals {
+			if err := m.reserve(1); err != nil {
+				return nil, nil, err
+			}
 			n := newNode(v)
 			entrypoints = append(entrypoints, n)
 			endpoints = append(endpoints, n)
 			return
+		}
+
+		if err := m.reserve(2 * len(v.Values)); err != nil {
+			return nil, nil, err
 		}
 
 		var prevs []*Node = nil
@@ -1240,6 +1334,9 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 
 	case ElemNumVal:
 		if !m.options.deflateNumVals {
+			if err := m.reserve(1); err != nil {
+				return nil, nil, err
+			}
 			n := newNode(v)
 			entrypoints = append(entrypoints, n)
 			endpoints = append(endpoints, n)
@@ -1248,6 +1345,9 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 		switch v.Status {
 		case StatRange:
 			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
+			if err := m.reserve(int(max - min + 1)); err != nil {
+				return nil, nil, err
+			}
 			for i := min; i <= max; i++ {
 				n := newNode(ElemNumVal{
 					Base:   v.Base,
@@ -1259,6 +1359,9 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 			}
 
 		case StatSeries:
+			if err := m.reserve(len(v.Elems)); err != nil {
+				return nil, nil, err
+			}
 			for _, s := range v.Elems {
 				n := newNode(ElemNumVal{
 					Base:   v.Base,
@@ -1276,6 +1379,9 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 		if m.options.deflateRules {
 			name := strings.ToLower(v.Name)
 			if n, ok := m.buf[name]; ok {
+				if err := m.reserveClones(1, n[0]); err != nil {
+					return nil, nil, err
+				}
 				entrypoints, endpoints := cloneTransitionGraph(n[0], n[1])
 				return entrypoints, endpoints, nil
 			}
@@ -1289,9 +1395,15 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 			if err != nil {
 				return nil, nil, err
 			}
+			if err := m.reserveClones(1, i); err != nil {
+				return nil, nil, err
+			}
 			ni, no := cloneTransitionGraph(i, o)
 			m.buf[name] = [2][]*Node{ni, no}
 			return i, o, nil
+		}
+		if err := m.reserve(1); err != nil {
+			return nil, nil, err
 		}
 		n := newNode(v)
 		entrypoints = append(entrypoints, n)

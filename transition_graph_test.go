@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	_ "embed"
+	"errors"
 	"testing"
 	"time"
 
@@ -564,5 +565,42 @@ func Test_U_TGReader_ModeA_KnownCounts(t *testing.T) {
 		if n != c.want {
 			t.Errorf("%q: mode A produced %d, want %d", c.src, n, c.want)
 		}
+	}
+}
+
+// WithMaxNodes must be unbounded by default (backward compatible) and, when set,
+// must reject grammars whose construction would exceed the budget -- including
+// the nested-repetition and wide-num-val-range blow-ups that
+// WithRepetitionThreshold does not catch -- with a typed *ErrMaxNodesExceeded.
+func Test_U_TransitionGraph_MaxNodes(t *testing.T) {
+	t.Parallel()
+
+	// Default is unbounded: a moderately nested repetition still builds.
+	if _, err := mustGrammar("a = 10(10(\"x\"))\r\n").TransitionGraph("a"); err != nil {
+		t.Fatalf("default (unbounded) should build 10(10(\"x\")): %v", err)
+	}
+
+	// Bounded: the same shape, scaled up, must be rejected with the typed error.
+	_, err := mustGrammar("a = 100(100(100(\"x\")))\r\n").TransitionGraph("a", WithMaxNodes(10_000))
+	var budgetErr *ErrMaxNodesExceeded
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("nested reps over budget: got %v, want *ErrMaxNodesExceeded", err)
+	}
+
+	// Wide num-val range deflation is bounded too.
+	_, err = mustGrammar("a = %x00-10FFFF\r\n").TransitionGraph("a",
+		WithDeflateNumVals(true), WithMaxNodes(1_000))
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("wide deflated range over budget: got %v, want *ErrMaxNodesExceeded", err)
+	}
+
+	// A budget large enough for a normal grammar lets it build.
+	if _, err := mustGrammar("a = *(\"a\" / \"b\")\r\n").TransitionGraph("a", WithMaxNodes(1_000)); err != nil {
+		t.Fatalf("normal grammar under a generous budget: %v", err)
+	}
+
+	// A non-positive budget means unbounded.
+	if _, err := mustGrammar("a = 10(10(\"x\"))\r\n").TransitionGraph("a", WithMaxNodes(0)); err != nil {
+		t.Fatalf("MaxNodes(0) should be unbounded: %v", err)
 	}
 }

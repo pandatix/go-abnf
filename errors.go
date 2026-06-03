@@ -124,3 +124,15 @@ var _ error = (*ErrLeftRecursion)(nil)
 func (err ErrLeftRecursion) Error() string {
 	return fmt.Sprintf("rule %s is left recursive and cannot be parsed", err.Rulename)
 }
+
+// ErrMaxNodesExceeded is returned by TransitionGraph when construction would
+// allocate more nodes than the budget set with WithMaxNodes.
+type ErrMaxNodesExceeded struct {
+	Max int
+}
+
+var _ error = (*ErrMaxNodesExceeded)(nil)
+
+func (err ErrMaxNodesExceeded) Error() string {
+	return fmt.Sprintf("transition graph node budget of %d exceeded", err.Max)
+}
