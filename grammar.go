@@ -34,7 +34,6 @@ func (g *Grammar) IsValid(rulename string, input []byte) (bool, error) {
 		inProgress: map[string]bool{},
 		leftRec:    g.leftRecursiveSCCs(),
 		growing:    map[string]map[int]bool{},
-		headActive: map[int]int{},
 	}
 	ends := r.reachElem(ElemRulename{Name: rulename}, 0)
 	return ends[len(input)], nil

@@ -28,12 +28,9 @@ type recognizer struct {
 	// Left-recursion support. leftRec maps each left-recursive rule (lowercase
 	// name) to its left-corner SCC, grown jointly. growing holds the live seed
 	// of each rule currently being grown (key "rule@index"); a re-entrant call
-	// returns the seed instead of recursing. headActive counts the growing
-	// sessions in flight at each index, so we never memoize a result at a
-	// position whose seeds are still settling.
-	leftRec    map[string][]string
-	growing    map[string]map[int]bool
-	headActive map[int]int
+	// returns the seed instead of recursing.
+	leftRec map[string][]string
+	growing map[string]map[int]bool
 }
 
 func cloneSet(s map[int]bool) map[int]bool {
@@ -148,11 +145,14 @@ func (r *recognizer) reachElem(elem ElemItf, index int) map[int]bool {
 	r.inProgress[key] = true
 	out := r.computeElem(elem, index)
 	delete(r.inProgress, key)
-	// Do not cache while a seed at this position is still growing: the result
-	// may depend on a seed that has not reached its fixpoint yet.
-	if r.headActive[index] == 0 {
-		r.memo[key] = cloneSet(out)
-	}
+
+	// Safe to cache: a rule reached here either is independent of any actively
+	// growing seed, or is itself a growing SCC member (handled by reachLeftRec
+	// via r.growing, not this path). A lower left-corner SCC cannot reference
+	// the SCC growing above it -- they would be one SCC -- so its result is
+	// stable. Caching nested SCCs is what keeps left recursion polynomial.
+	r.memo[key] = cloneSet(out)
+
 	return out
 }
 
@@ -172,7 +172,6 @@ func (r *recognizer) reachLeftRec(name string, scc []string, index int) map[int]
 		return seed // re-entrant: return the current seed
 	}
 
-	r.headActive[index]++
 	keys := make([]string, len(scc))
 	for i, x := range scc {
 		keys[i] = x + sidx
@@ -195,16 +194,16 @@ func (r *recognizer) reachLeftRec(name string, scc []string, index int) map[int]
 			}
 		}
 	}
-	r.headActive[index]--
 
-	canMemo := r.headActive[index] == 0
+	// The fixpoint converged. These end-sets are final and independent of any
+	// outer growing seed (the SCC only re-references its own members, held in
+	// r.growing, and strictly lower SCCs, which cannot reference it back), so
+	// they can be memoized unconditionally.
 	var result map[int]bool
 	for i, x := range scc {
 		v := r.growing[keys[i]]
 		delete(r.growing, keys[i])
-		if canMemo {
-			r.memo[keys[i]] = cloneSet(v)
-		}
+		r.memo[keys[i]] = cloneSet(v)
 		if x == name {
 			result = cloneSet(v)
 		}
