@@ -2,7 +2,6 @@ package goabnf
 
 import (
 	"fmt"
-	"maps"
 	"strings"
 )
 
@@ -123,55 +122,6 @@ func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
 	scc.find()
 
 	return ruleContainsCycle(scc.sccs, rulename), nil
-}
-
-func isAltLeftTerminating(g *Grammar, stack map[string]*Rule, alt Alternation) bool {
-	for _, con := range alt.Concatenations {
-		for _, rep := range con.Repetitions {
-			_, subIsOption := rep.Element.(ElemOption)
-			if rep.Min == 0 || subIsOption {
-				if !isElemLeftTerminating(g, stack, rep.Element) {
-					return false
-				}
-				continue
-			}
-			if !isElemLeftTerminating(g, stack, rep.Element) {
-				return false
-			}
-			break
-		}
-	}
-	return true
-}
-
-func isElemLeftTerminating(g *Grammar, stack map[string]*Rule, elem ElemItf) bool {
-	switch v := elem.(type) {
-	case ElemRulename:
-		ruleInStack := (getRuleIn(v.Name, stack) != nil)
-		if ruleInStack {
-			return false
-		}
-		rule := GetRule(v.Name, g.Rulemap)
-		if rule == nil {
-			// Undefined rule (reachable when the grammar was parsed with
-			// WithValidation(false)). It has no production, so it cannot
-			// left-recurse and is trivially left-terminating; the recognizer
-			// treats it as unmatchable, so IsValid then simply reports no match
-			// instead of panicking on a nil rule here.
-			return true
-		}
-		stack[v.Name] = rule
-		return isAltLeftTerminating(g, maps.Clone(stack), rule.Alternation)
-	case ElemOption:
-		return isAltLeftTerminating(g, stack, v.Alternation)
-	case ElemGroup:
-		return isAltLeftTerminating(g, stack, v.Alternation)
-	case ElemCharVal:
-		return len(v.Values) != 0
-	case ElemProseVal:
-		return len(v.values) != 0
-	}
-	return true
 }
 
 func ruleContainsCycle(sccs [][]*node, rulename string) bool {

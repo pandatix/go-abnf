@@ -123,8 +123,7 @@ func NewASTGenerator(g *Grammar, rule string, opts ...ASTGenOption) (*ASTGenerat
 	// Every rule reachable from start must be defined and productive.
 	seen := map[string]bool{start.Name: true}
 	var visitAlt func(Alternation) error
-	var visitElem func(ElemItf) error
-	visitElem = func(e ElemItf) error {
+	visitElem := func(e ElemItf) error {
 		switch x := e.(type) {
 		case ElemRulename:
 			r := GetRule(x.Name, g.Rulemap)

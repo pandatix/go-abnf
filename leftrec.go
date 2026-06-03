@@ -133,8 +133,7 @@ func (g *Grammar) leftRecursiveSCCs() map[string][]string {
 func leftCornerDeps(g *Grammar, null map[string]bool, alt Alternation) []string {
 	deps := []string{}
 	var addAlt func(Alternation)
-	var addElem func(ElemItf)
-	addElem = func(e ElemItf) {
+	addElem := func(e ElemItf) {
 		switch v := e.(type) {
 		case ElemRulename:
 			deps = appendDeps(deps, strings.ToLower(v.Name))
