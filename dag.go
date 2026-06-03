@@ -180,6 +180,14 @@ func isElemLeftTerminating(g *Grammar, stack map[string]*Rule, elem ElemItf) boo
 			return false
 		}
 		rule := GetRule(v.Name, g.Rulemap)
+		if rule == nil {
+			// Undefined rule (reachable when the grammar was parsed with
+			// WithValidation(false)). It has no production, so it cannot
+			// left-recurse and is trivially left-terminating; the recognizer
+			// treats it as unmatchable, so IsValid then simply reports no match
+			// instead of panicking on a nil rule here.
+			return true
+		}
 		stack[v.Name] = rule
 		return isAltLeftTerminating(g, maps.Clone(stack), rule.Alternation)
 	case ElemOption:
