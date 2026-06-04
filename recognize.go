@@ -76,9 +76,16 @@ func (r *recognizer) reachRep(rep Repetition, index int) map[int]bool {
 
 	// level = positions reachable after exactly c occurrences.
 	level := map[int]bool{index: true}
-	// Each *progressing* occurrence consumes >=1 byte, so positions strictly
-	// grow until they stabilise; len(input)+2 iterations bound that, with a
-	// couple extra to settle zero-width (nullable) elements.
+
+	// seen = every position reached at any count so far. reachElem only moves
+	// forward (an end position is >= its start), so once a step introduces no
+	// position outside seen, the reachable set has closed and no later
+	// repetition can add a new end position. Breaking there keeps an unbounded
+	// repetition over an element with large reach-sets (e.g. *(1*ALPHA)) at
+	// O(n^2); the previous len(next)==len(level) test never tripped because
+	// level shrank by one each step ({1..n}, {2..n}, ...), giving O(n^3).
+	seen := map[int]bool{index: true}
+
 	cap := len(r.input) + 2
 	for c := 1; c <= cap; c++ {
 		if rep.Max != inf && c > rep.Max {
@@ -99,23 +106,16 @@ func (r *recognizer) reachRep(rep Repetition, index int) map[int]bool {
 			}
 		}
 		// Fixpoint: nullable element whose position set stopped growing.
-		stable := len(next) == len(level)
-		if stable {
-			for e := range next {
-				if !level[e] {
-					stable = false
-					break
-				}
+		grew := false
+		for e := range next {
+			if !seen[e] {
+				seen[e] = true
+				grew = true
 			}
 		}
 		level = next
-		if stable {
-			// All larger counts (incl. any c >= Min) reach the same set.
-			if rep.Min <= rep.Max || rep.Max == inf {
-				for e := range level {
-					ends[e] = true
-				}
-			}
+		// Reachable set closed and the minimum-count requirement met.
+		if !grew && c >= rep.Min {
 			break
 		}
 	}

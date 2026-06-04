@@ -281,6 +281,16 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int, st *par
 			}
 			elemPossibilities := solveElem(grammar, rep.Element, input, prevPath.End, st)
 			for _, elemPoss := range elemPossibilities {
+				// A zero-width repetition makes no progress: extending the
+				// chain with it is redundant (the shorter chain already ends
+				// here) and, when the element has >=2 empty parses, would double
+				// the path set every iteration and never terminate. Skip it; the
+				// empty case is already covered by ppaths[i-1] and the Min==0
+				// branch above.
+				if elemPoss.End == prevPath.End {
+					continue
+				}
+
 				subs := make([]*Path, len(prevPath.Subpaths), len(prevPath.Subpaths)+1)
 				copy(subs, prevPath.Subpaths)
 				subs = append(subs, elemPoss)
@@ -294,13 +304,9 @@ func solveRep(grammar *Grammar, rep Repetition, input []byte, index int, st *par
 			}
 		}
 
-		// If no new path found during this repetition, don't keep working
+		// If no progressing path was found during this repetition, stop: every
+		// further iteration would be non-progressing too.
 		if len(ppaths[i]) == 0 {
-			break
-		}
-		// If one path has been produced yet did not made progress, we should not iterate as it
-		// won't go further (e.g., can happen with the repetition of an empty char-val).
-		if len(ppaths[i]) == 1 && ppaths[i][0].Start == ppaths[i][0].End {
 			break
 		}
 	}
