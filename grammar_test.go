@@ -263,8 +263,8 @@ func Test_U_ABNFParseItself(t *testing.T) {
 
 	// 1b (with the freshly produced ABNF grammar)
 	sol, err := Parse([]byte(fresh), g, "rulelist")
-	assert.NotNil(t, sol)
 	assert.Nil(t, err)
+	assert.True(t, sol.Valid())
 }
 
 func Test_U_ParseRootNonGroup(t *testing.T) {
@@ -280,18 +280,20 @@ func Test_U_ParseRootNonGroup(t *testing.T) {
 
 	// Then we consider an input, valid according to our grammar.
 	input := []byte("a")
-	p, err := Parse(input, g, "b")
+	f, err := Parse(input, g, "b")
 	if !assert.Nil(err) {
 		return
 	}
 
-	// Then we make sure there is only 1 possibility, and all
-	// subpaths have the proper name.
-	if !assert.Len(p, 1) {
+	// Then we make sure there is exactly one parse tree, rooted at "b",
+	// whose first child is the referenced rule "a".
+	if !assert.True(f.Valid()) {
 		return
 	}
-	assert.Equal("b", p[0].MatchRule)
-	assert.Equal("a", p[0].Subpaths[0].MatchRule)
+	assert.False(f.Ambiguous())
+	tree := f.Tree()
+	assert.Equal("b", tree.Rule)
+	assert.Equal("a", tree.Children[0].Rule)
 }
 
 func Test_U_ParseEmptyCharVal(t *testing.T) {
@@ -315,8 +317,8 @@ func Test_U_ParseEmptyCharVal(t *testing.T) {
 		g, err := ParseABNF([]byte("a=*\"\"\r\n"))
 		require.NoError(t, err)
 
-		_, err = Parse([]byte("test"), g, "a") // This had an infinite loop
-		assert.NoError(t, err)
+		_, err = Parse([]byte("test"), g, "a") // The backtracking parser looped here forever
+		assert.NoError(t, err)                 // the GLL engine terminates
 	}
 
 	// The following test case is for regression detection
@@ -350,9 +352,9 @@ func Test_U_ParseEndingRepeat0(t *testing.T) {
 			input = "abc"
 		)
 
-		path, err := Parse([]byte(input), g, rule)
-		assert.NotEmpty(t, path)
+		f, err := Parse([]byte(input), g, rule)
 		assert.NoError(t, err)
+		assert.True(t, f.Valid())
 	}
 
 	// The issue's content, for replicability purposes
@@ -365,9 +367,9 @@ func Test_U_ParseEndingRepeat0(t *testing.T) {
 			input = "Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.Q70dVMtrOQzEFmGOxPAKbNOUSQMISCLhEDfGpMG0WM4"
 		)
 
-		path, err := Parse([]byte(input), g, rule)
-		assert.NotEmpty(t, path)
+		f, err := Parse([]byte(input), g, rule)
 		assert.NoError(t, err)
+		assert.True(t, f.Valid())
 	}
 }
 
@@ -397,33 +399,94 @@ func Test_U_ParseCharValMultiByteUTF8(t *testing.T) {
 		},
 	}
 
-	// Matching multi-byte input must return a non-empty path.
-	paths, err := Parse([]byte("éab"), g, "root")
+	// Matching multi-byte input must produce a valid parse.
+	f, err := Parse([]byte("éab"), g, "root")
 	assert.NoError(t, err)
-	assert.NotEmpty(t, paths)
+	assert.True(t, f.Valid())
 }
 
-func Test_U_ParseStackOverflow(t *testing.T) {
-	// Left-recursive: previously crashed Parse with fatal stack overflow.
+func Test_U_ParseLeftRecursion(t *testing.T) {
+	// Left recursion: the previous backtracking parser stack-overflowed (or
+	// bailed out) here. The GLL engine parses it: "aaaa" is derivable by
+	// s = s "a" / "a".
 	{
 		g, _ := ParseABNF([]byte("s = s \"a\" / \"a\"\r\n"), WithValidation(false))
-		paths, err := Parse([]byte("aaaa"), g, "s")
-		assert.Empty(t, paths)
-		assert.Error(t, err)
+		f, err := Parse([]byte("aaaa"), g, "s")
+		assert.NoError(t, err)
+		assert.True(t, f.Valid())
 	}
 
 	// Sanity: a normal left-terminating grammar still parses fine.
 	{
 		g, _ := ParseABNF([]byte("s = \"a\" *(\"b\" / \"c\")\r\n"), WithValidation(false))
-		paths, err := Parse([]byte("abcbc"), g, "s")
-		assert.NotEmpty(t, paths)
+		f, err := Parse([]byte("abcbc"), g, "s")
 		assert.NoError(t, err)
+		assert.True(t, f.Valid())
 	}
 
-	// Sanity: ParseABNF (uses fixed ABNF grammar) still works.
+	// Sanity: ParseABNF (uses the fixed ABNF grammar) still works.
 	{
 		_, err := ParseABNF([]byte("greeting = \"hello\" SP \"world\"\r\n"))
 		assert.NoError(t, err)
+	}
+}
+
+// Test_U_ParseAmbiguity exercises the GLL engine's ambiguity reporting over the
+// public Forest API: Valid, Ambiguous, NumTrees (with -1 meaning infinitely many
+// trees, i.e. a cyclic forest from an infinitely-ambiguous grammar) and single
+// tree extraction, which must stay finite even on cyclic forests.
+func Test_U_ParseAmbiguity(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		Abnf      string
+		Rule      string
+		Input     string
+		Valid     bool
+		Ambiguous bool
+		NumTrees  int64 // only checked when Valid; -1 == infinitely many
+	}{
+		"unambiguous-concat": {"s = \"a\" \"b\"\r\n", "s", "ab", true, false, 1},
+		"unambiguous-alt":    {"s = \"a\" / \"b\"\r\n", "s", "a", true, false, 1},
+		// Both alternatives accept "aa": "a" "a" and "aa".
+		"two-derivations": {"s = \"a\" \"a\" / \"aa\"\r\n", "s", "aa", true, true, 2},
+		// Classic ambiguous left recursion: C_2 = 2 parse trees for 3 operands.
+		"ambiguous-left-recursion": {"e = e \"+\" e / \"1\"\r\n", "e", "1+1+1", true, true, 2},
+		// Left recursion that is nonetheless unambiguous (strictly left-assoc).
+		"unambiguous-left-recursion": {"expr = expr \"+\" term / term\r\nterm = 1*DIGIT\r\n", "expr", "1+2+3", true, false, 1},
+		// Infinitely ambiguous: the forest is cyclic, NumTrees reports -1.
+		"infinite-ambiguity": {"a = a / \"x\"\r\n", "a", "x", true, true, -1},
+		// Rejected input: not valid, not ambiguous, no tree.
+		"invalid": {"s = \"a\"\r\n", "s", "b", false, false, 0},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			g := mustGrammar(tt.Abnf)
+			f, err := Parse([]byte(tt.Input), g, tt.Rule)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.Valid, f.Valid())
+			assert.Equal(t, tt.Ambiguous, f.Ambiguous())
+
+			if !tt.Valid {
+				assert.Nil(t, f.Tree())
+				assert.Equal(t, int64(0), f.NumTrees().Int64())
+				return
+			}
+
+			assert.Equal(t, tt.NumTrees, f.NumTrees().Int64())
+
+			// A single concrete tree must always be extractable and rooted at
+			// the requested rule, spanning the whole input -- even when the
+			// forest is cyclic (infinite ambiguity), where extraction relies on
+			// a visited guard to terminate.
+			tree := f.Tree()
+			require.NotNil(t, tree)
+			assert.Equal(t, tt.Rule, tree.Rule)
+			assert.Equal(t, 0, tree.Start)
+			assert.Equal(t, len(tt.Input), tree.End)
+		})
 	}
 }
 
@@ -570,12 +633,11 @@ func Test_U_IsValid(t *testing.T) {
 }
 
 // Test_U_IsValidMatchesParse cross-checks the recognizer-backed IsValid against
-// an independent oracle: the path-enumerating Parse, which is complete for
-// left-terminating grammars. For every grammar below and every input over a
-// small alphabet up to a bounded length, IsValid must return true exactly when
-// Parse finds at least one path that consumes the whole input. This is the
-// property that makes the recognizer a behaviour-preserving replacement of the
-// previous Parse-based IsValid.
+// an independent oracle: the GLL-backed Parse. For every grammar below and every
+// input over a small alphabet up to a bounded length, IsValid must agree with
+// whether the GLL parse forest accepts the whole input. Two independent engines
+// (the set-reachability recognizer and the GLL parser) reaching the same verdict
+// is what guards the recognizer against regressions.
 func Test_U_IsValidMatchesParse(t *testing.T) {
 	t.Parallel()
 
@@ -602,11 +664,11 @@ func Test_U_IsValidMatchesParse(t *testing.T) {
 	for testname, tt := range grammars {
 		t.Run(testname, func(t *testing.T) {
 			for _, in := range inputs {
-				// Oracle: Parse is complete for left-terminating grammars, so
-				// "at least one full-consuming path" is the ground truth.
-				paths, err := Parse(in, tt.Grammar, tt.Rulename)
+				// Oracle: the GLL parse forest accepts iff the whole input is
+				// derivable from the rule.
+				f, err := Parse(in, tt.Grammar, tt.Rulename)
 				require.NoError(t, err)
-				want := len(paths) != 0
+				want := f.Valid()
 
 				got, err := tt.Grammar.IsValid(tt.Rulename, in)
 				require.NoError(t, err)

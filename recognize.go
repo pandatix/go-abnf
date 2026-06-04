@@ -76,7 +76,6 @@ func (r *recognizer) reachRep(rep Repetition, index int) map[int]bool {
 
 	// level = positions reachable after exactly c occurrences.
 	level := map[int]bool{index: true}
-
 	// seen = every position reached at any count so far. reachElem only moves
 	// forward (an end position is >= its start), so once a step introduces no
 	// position outside seen, the reachable set has closed and no later
@@ -105,7 +104,6 @@ func (r *recognizer) reachRep(rep Repetition, index int) map[int]bool {
 				ends[e] = true
 			}
 		}
-		// Fixpoint: nullable element whose position set stopped growing.
 		grew := false
 		for e := range next {
 			if !seen[e] {
@@ -145,14 +143,12 @@ func (r *recognizer) reachElem(elem ElemItf, index int) map[int]bool {
 	r.inProgress[key] = true
 	out := r.computeElem(elem, index)
 	delete(r.inProgress, key)
-
 	// Safe to cache: a rule reached here either is independent of any actively
 	// growing seed, or is itself a growing SCC member (handled by reachLeftRec
 	// via r.growing, not this path). A lower left-corner SCC cannot reference
 	// the SCC growing above it -- they would be one SCC -- so its result is
 	// stable. Caching nested SCCs is what keeps left recursion polynomial.
 	r.memo[key] = cloneSet(out)
-
 	return out
 }
 
@@ -241,7 +237,11 @@ func (r *recognizer) computeElem(elem ElemItf, index int) map[int]bool {
 			if index >= len(r.input) {
 				return out
 			}
-			min, max := numvalToRune(v.Elems[0], v.Base), numvalToRune(v.Elems[1], v.Base)
+			min, ok1 := numvalToRuneOK(v.Elems[0], v.Base)
+			max, ok2 := numvalToRuneOK(v.Elems[1], v.Base)
+			if !ok1 || !ok2 {
+				return out
+			}
 			ru, size := utf8.DecodeRune(r.input[index:])
 			if ru == utf8.RuneError && size == 1 {
 				return out
@@ -252,7 +252,11 @@ func (r *recognizer) computeElem(elem ElemItf, index int) map[int]bool {
 		case StatSeries:
 			idx := index
 			for i := 0; i < len(v.Elems); i++ {
-				s := string(numvalToRune(v.Elems[i], v.Base))
+				ru, ok := numvalToRuneOK(v.Elems[i], v.Base)
+				if !ok {
+					return out
+				}
+				s := string(ru)
 				sz := len([]byte(s))
 				if idx+sz > len(r.input) || s != string(r.input[idx:idx+sz]) {
 					return out

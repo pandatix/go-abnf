@@ -28,6 +28,18 @@ func numvalToRune(str, base string) rune {
 	return rune(numvalToInt32(str, base))
 }
 
+// numvalToRuneOK is the panic-free counterpart of numvalToRune: it reports
+// ok=false when the value is outside the Unicode range instead of panicking.
+// Such a num-val can never equal a decoded rune (runes are at most U+10FFFF),
+// so matchers treat ok=false as "no match", keeping a grammar that skipped
+// validation from crashing the parser.
+func numvalToRuneOK(str, base string) (rune, bool) {
+	if checkBounds(str, base) != nil {
+		return 0, false
+	}
+	return rune(numvalToInt32(str, base)), true
+}
+
 func numvalToInt32(str, base string) (out int32) {
 	if err := checkBounds(str, base); err != nil {
 		panic(err)
