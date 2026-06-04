@@ -2,6 +2,7 @@ package goabnf
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -55,14 +56,7 @@ func getDependencies(alt Alternation) []string {
 
 func appendDeps(deps []string, ndeps ...string) []string {
 	for _, ndep := range ndeps {
-		already := false
-		for _, dep := range deps {
-			if ndep == dep {
-				already = true
-				break
-			}
-		}
-		if !already {
+		if !slices.Contains(deps, ndep) {
 			deps = append(deps, ndep)
 		}
 	}
@@ -71,14 +65,15 @@ func appendDeps(deps []string, ndeps ...string) []string {
 
 // Mermaid returns a flowchart of the dependency graph.
 func (dg Depgraph) Mermaid() string {
-	out := "flowchart TD\n"
+	var out strings.Builder
+	out.WriteString("flowchart TD\n")
 	for _, node := range dg {
 		for _, dep := range node.Dependencies {
-			out += fmt.Sprintf("\t%s --> %s\n", node.Rulename, dep)
+			fmt.Fprintf(&out, "\t%s --> %s\n", node.Rulename, dep)
 		}
-		out += "\n"
+		out.WriteString("\n")
 	}
-	return out
+	return out.String()
 }
 
 // IsDag find Strongly Connected Components using Tarjan's algorithm
@@ -125,46 +120,57 @@ func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
 }
 
 func ruleContainsCycle(sccs [][]*node, rulename string) bool {
-	// Find rulename's SCC
-	scc := ([]*node)(nil)
-	rulenode := (*node)(nil)
+	// Index nodes by lowercase name and flag those sitting in a non-trivial SCC
+	// (size > 1 == a cycle). Precomputing this removes the O(V) SCC scan that
+	// the previous implementation did on every recursive step.
+	nodeOf := make(map[string]*node, len(sccs))
+	inCycle := make(map[string]bool, len(sccs))
+
 	for _, s := range sccs {
-		if scc != nil {
-			break
-		}
-		for _, ss := range s {
-			if strings.EqualFold(ss.Rulename, rulename) {
-				rulenode = ss
-				scc = s
-				break
-			}
+		nontrivial := len(s) > 1
+		for _, nd := range s {
+			key := strings.ToLower(nd.Rulename)
+			nodeOf[key] = nd
+			inCycle[key] = nontrivial
 		}
 	}
-	if rulenode == nil {
-		// If the node corresponding to the rulename does not exist,
-		// consider there is no cycle.
+	return ruleCycleVisit(strings.ToLower(rulename), nodeOf, inCycle, map[string]bool{})
+}
+
+// ruleCycleVisit reports whether the rule (or any transitive dependency) is
+// cyclic. The visited set keeps each rule explored at most once: without it a
+// diamond-shaped dependency DAG is walked along every root-to-leaf path, which
+// is exponential. Marking on entry is safe because a cyclic rule returns true
+// here before it can ever be marked-and-skipped, so a memoized rule is always
+// genuinely acyclic.
+func ruleCycleVisit(key string, nodeOf map[string]*node, inCycle, visited map[string]bool) bool {
+	if visited[key] {
+		return false
+	}
+	visited[key] = true
+	nd := nodeOf[key]
+	if nd == nil {
+		// Unknown rule: treat as acyclic (matches the previous behaviour).
 		return false
 	}
 
-	// Check if cyclic
-	dependsOn := false
-	for _, dep := range rulenode.Dependencies {
-		if strings.EqualFold(dep, rulename) {
-			dependsOn = true
-			break
+	// Self-loop (a size-1 SCC with a self-edge is not flagged by inCycle).
+	for _, dep := range nd.Dependencies {
+		if strings.ToLower(dep) == key {
+			return true
 		}
 	}
-	if dependsOn || len(scc) != 1 {
+	if inCycle[key] {
 		// If it depends on itself or is part of an SCC, then is cylic
 		return true
 	}
 
-	// Propagate to deps
-	for _, dep := range rulenode.Dependencies {
-		if strings.EqualFold(dep, rulename) {
+	for _, dep := range nd.Dependencies {
+		dk := strings.ToLower(dep)
+		if dk == key {
 			continue
 		}
-		if ruleContainsCycle(sccs, dep) {
+		if ruleCycleVisit(dk, nodeOf, inCycle, visited) {
 			return true
 		}
 	}
