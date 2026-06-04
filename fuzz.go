@@ -3,6 +3,7 @@ package goabnf
 import (
 	"fmt"
 	"math/rand"
+	"unicode/utf8"
 )
 
 // fuzz.go turns a (fully expanded) transition graph into a total
@@ -509,6 +510,11 @@ func numvalRange(elem ElemItf) (numvalInfo, bool) {
 		return numvalInfo{}, false
 	}
 	min, max := numvalToInt32(nv.Elems[0], nv.Base), numvalToInt32(nv.Elems[1], nv.Base)
+	// Clamp the upper bound to the Unicode range so the "just above" boundary
+	// probe (max+1) stays a meaningful rune rather than overflowing.
+	if max > utf8.MaxRune {
+		max = utf8.MaxRune
+	}
 	return numvalInfo{min: min, max: max, label: elem.String()}, true
 }
 
@@ -608,7 +614,12 @@ func nodeEmissions(n *Node) ([]emission, bool) {
 		case StatSeries:
 			e := emission{}
 			for _, el := range v.Elems {
-				for _, b := range []byte(string(numvalToRune(el, v.Base))) {
+				r := numvalToRune(el, v.Base)
+				if !utf8.ValidRune(r) {
+					// An out-of-range element can never appear in UTF-8 input.
+					return nil, false
+				}
+				for _, b := range []byte(string(r)) {
 					var s octetSet
 					s.add(b)
 					e.pos = append(e.pos, s)
@@ -617,6 +628,16 @@ func nodeEmissions(n *Node) ([]emission, bool) {
 			return []emission{e}, true
 		case StatRange:
 			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
+			// Clamp to the Unicode range first: otherwise an out-of-range bound
+			// near MaxInt32 overflows the int32 count below, bypasses the cap
+			// guard, and turns the enumeration loop into a DoS. A range wholly
+			// above U+10FFFF emits nothing.
+			if max > utf8.MaxRune {
+				max = utf8.MaxRune
+			}
+			if min > utf8.MaxRune || min > max {
+				return nil, false
+			}
 			if max <= 0x7f { // ASCII: a single one-octet emission
 				var s octetSet
 				for b := min; b <= max; b++ {

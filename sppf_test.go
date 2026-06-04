@@ -1,8 +1,11 @@
 package goabnf
 
 import (
+	"math"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -199,47 +202,173 @@ func Test_ParseForest_UnsatisfiableBound(t *testing.T) {
 	}
 }
 
-// Test_U_NumValOutOfRange covers the out-of-Unicode-range num-val hardening: a
-// num-val above U+10FFFF is not representable, so ParseABNF rejects it even with
-// validation disabled, and neither the recognizer nor the GLL engine panics on a
-// hand-built grammar carrying such a value -- both treat it as non-matching.
+// Test_U_NumValOutOfRange covers num-val values beyond U+10FFFF. Such a value is
+// a well-formed numeric encoding (legitimate for non-textual / on-wire grammars),
+// so without validation ParseABNF accepts it; strict validation rejects it for
+// textual use. Using the grammar must never panic. A value, series, or range
+// wholly above the Unicode ceiling matches nothing (input is decoded as runes),
+// while a range that merely straddles the ceiling matches its Unicode subset.
 func Test_U_NumValOutOfRange(t *testing.T) {
-	for _, src := range []string{
+	in := []byte("\xf4\x8f\xbf\xbf") // U+10FFFF
+
+	// Cannot match any rune: a lone over-range value, a series whose element is
+	// out of range, a range wholly above the ceiling, and a 64-bit value.
+	noMatch := []string{
 		"a = %x110000\r\n",
-		"a = %x0-110000\r\n",
 		"a = %d1114112\r\n",
-		"a = %x10FFFF.110000\r\n",
-	} {
-		_, err := ParseABNF([]byte(src), WithValidation(false))
-		assert.Errorf(t, err, "src %q must be rejected even without validation", src)
+		"a = %x10FFFF.110000\r\n",    // series: second element out of range
+		"a = %x110000-120000\r\n",    // range wholly above U+10FFFF
+		"a = %xBCDE3BCD9AFBCAD3\r\n", // 64-bit value
+	}
+	for _, src := range noMatch {
+		g, err := ParseABNF([]byte(src), WithValidation(false))
+		require.NoErrorf(t, err, "src %q must be accepted without validation", src)
+
+		assert.NotPanicsf(t, func() {
+			f, perr := ParseForest(in, g, "a")
+			require.NoError(t, perr)
+			assert.Falsef(t, f.Valid(), "src %q must match nothing", src)
+		}, "ParseForest src %q", src)
+		assert.NotPanicsf(t, func() {
+			v, verr := g.IsValid("a", in)
+			require.NoError(t, verr)
+			assert.Falsef(t, v, "src %q must match nothing", src)
+		}, "IsValid src %q", src)
+
+		// Strict validation rejects it as outside the Unicode range.
 		_, err = ParseABNF([]byte(src))
-		assert.Errorf(t, err, "src %q must be rejected", src)
+		assert.Errorf(t, err, "src %q must be rejected under validation", src)
 	}
 
-	// In-range maximal values still parse.
-	for _, src := range []string{"a = %x10FFFF\r\n", "a = %x0-10FFFF\r\n", "a = %d1114111\r\n"} {
-		_, err := ParseABNF([]byte(src))
-		assert.NoErrorf(t, err, "src %q", src)
-	}
+	// A range straddling the Unicode ceiling matches its representable subset --
+	// here it accepts U+10FFFF on both engines.
+	g, err := ParseABNF([]byte("a = %x0-110000\r\n"), WithValidation(false))
+	require.NoError(t, err)
+	f, perr := ParseForest(in, g, "a")
+	require.NoError(t, perr)
+	assert.True(t, f.Valid(), "straddling range must match its Unicode subset (GLL)")
+	v, verr := g.IsValid("a", in)
+	require.NoError(t, verr)
+	assert.True(t, v, "straddling range must match its Unicode subset (recognizer)")
+	// Strict validation still rejects the out-of-range upper bound.
+	_, err = ParseABNF([]byte("a = %x0-110000\r\n"))
+	assert.Error(t, err)
 
-	// A hand-built grammar (bypassing ParseABNF's invariant) with an out-of-range
-	// num-val must not panic either engine.
-	g := &Grammar{Rulemap: map[string]*Rule{
-		"a": {Name: "a", Alternation: Alternation{Concatenations: []Concatenation{{
-			Repetitions: []Repetition{{Min: 1, Max: 1, Element: ElemNumVal{
-				Base: "x", Status: StatRange, Elems: []string{"0", "110000"},
-			}}},
-		}}}},
-	}}
-	in := []byte("\xf4\x8f\xbf\xbf")
-	assert.NotPanics(t, func() {
-		f, err := ParseForest(in, g, "a")
-		require.NoError(t, err)
-		assert.False(t, f.Valid())
+	// In-range maximal value still parses and matches.
+	g = mustGrammar("a = %x10FFFF\r\n")
+	f, err = ParseForest(in, g, "a")
+	require.NoError(t, err)
+	assert.True(t, f.Valid())
+}
+
+// Test_U_NumvalConversion is a white-box test of the generalized num-val
+// conversion core. A num-val is a plain non-negative integer, no longer capped at
+// the Unicode range: numvalToUint64 parses any 64-bit value (ok=false only on
+// real overflow), numvalToInt32 returns the true value when it fits a positive
+// int32 and otherwise saturates to MaxInt32 (above every rune, so it can never
+// spuriously match), and none of them panic.
+func Test_U_NumvalConversion(t *testing.T) {
+	t.Run("uint64-parse-and-overflow", func(t *testing.T) {
+		cases := []struct {
+			str, base string
+			want      uint64
+			ok        bool
+		}{
+			{"41", "x", 0x41, true},
+			{"1010", "b", 0b1010, true},
+			{"65", "d", 65, true},
+			{"10FFFF", "x", 0x10FFFF, true},                     // max Unicode
+			{"110000", "x", 0x110000, true},                     // just beyond Unicode, still 64-bit
+			{"BCDE3BCD9AFBCAD3", "x", 0xBCDE3BCD9AFBCAD3, true}, // 64-bit
+			{"FFFFFFFFFFFFFFFF", "x", math.MaxUint64, true},     // exactly 64 bits
+			{"1FFFFFFFFFFFFFFFF", "x", 0, false},                // 65 bits -> overflow
+			{"zz", "x", 0, false},                               // malformed
+		}
+		for _, c := range cases {
+			got, ok := numvalToUint64(c.str, c.base)
+			assert.Equalf(t, c.ok, ok, "ok for %q base %q", c.str, c.base)
+			if c.ok {
+				assert.Equalf(t, c.want, got, "value for %q base %q", c.str, c.base)
+			}
+		}
 	})
-	assert.NotPanics(t, func() {
-		v, err := g.IsValid("a", in)
-		require.NoError(t, err)
-		assert.False(t, v)
+
+	t.Run("int32-true-value-then-saturation", func(t *testing.T) {
+		cases := []struct {
+			str, base string
+			want      int32
+		}{
+			{"41", "x", 0x41},
+			{"10FFFF", "x", 0x10FFFF},                 // max Unicode, exact
+			{"110000", "x", 0x110000},                 // beyond Unicode but fits int32: true value
+			{"7FFFFFFF", "x", math.MaxInt32},          // MaxInt32, exact
+			{"80000000", "x", math.MaxInt32},          // just over int32 -> saturates
+			{"BCDE3BCD9AFBCAD3", "x", math.MaxInt32},  // 64-bit -> saturates
+			{"1FFFFFFFFFFFFFFFF", "x", math.MaxInt32}, // overflow -> saturates
+		}
+		for _, c := range cases {
+			assert.NotPanicsf(t, func() {
+				assert.Equalf(t, c.want, numvalToInt32(c.str, c.base), "int32 for %q", c.str)
+			}, "numvalToInt32 %q", c.str)
+		}
 	})
+
+	t.Run("rune-and-validity", func(t *testing.T) {
+		// At or below the ceiling -> a valid rune; above it -> not a valid rune,
+		// which is how matchers reject an out-of-range num-val series.
+		assert.True(t, utf8.ValidRune(numvalToRune("10FFFF", "x")))
+		assert.False(t, utf8.ValidRune(numvalToRune("110000", "x")))
+		assert.False(t, utf8.ValidRune(numvalToRune("BCDE3BCD9AFBCAD3", "x")))
+		// A saturated value stays above the Unicode ceiling, so a range using it
+		// as an upper bound still covers the whole representable subset.
+		assert.Greater(t, numvalToInt32("80000000", "x"), rune(utf8.MaxRune))
+	})
+}
+
+// Test_U_NumVal_Consumers_NoPanic asserts that every num-val consumer degrades
+// gracefully (no panic) on out-of-range values, and that the text producers stay
+// faithful: Regex output always compiles, clamping a straddling range to its
+// Unicode subset and rendering a wholly-out-of-range value as a never-matching
+// class.
+func Test_U_NumVal_Consumers_NoPanic(t *testing.T) {
+	cases := []struct {
+		src           string
+		regexCompiles bool
+		regexMatchesU bool // does the regex match U+10FFFF?
+	}{
+		{"a = %x0-110000\r\n", true, true}, // straddling -> Unicode subset
+		{"a = %x110000\r\n", true, false},  // lone over-range -> never match
+		{"a = %xBCDE3BCD9AFBCAD3\r\n", true, false},
+		{"a = %x0-7FFFFFFF\r\n", true, true}, // near MaxInt32, clamped
+	}
+	u := "\U0010FFFF"
+	for _, c := range cases {
+		g, err := ParseABNF([]byte(c.src), WithValidation(false))
+		require.NoErrorf(t, err, "src %q", c.src)
+
+		assert.NotPanicsf(t, func() {
+			re, rerr := g.Regex("a")
+			require.NoErrorf(t, rerr, "Regex src %q", c.src)
+			compiled, cerr := regexp.Compile("^(?:" + re + ")$")
+			assert.Equalf(t, c.regexCompiles, cerr == nil, "Regex %q compiles for src %q", re, c.src)
+			if cerr == nil {
+				assert.Equalf(t, c.regexMatchesU, compiled.MatchString(u),
+					"regex %q match-U+10FFFF for src %q", re, c.src)
+			}
+		}, "Regex src %q", c.src)
+
+		assert.NotPanicsf(t, func() {
+			_, gerr := g.Generate(1, "a")
+			_ = gerr
+		}, "Generate src %q", c.src)
+
+		// deflate num-vals without deflate rules skips the up-front validation,
+		// exercising the enumeration clamp; a near-MaxInt32 range must not hang
+		// or bypass the node budget.
+		assert.NotPanicsf(t, func() {
+			_, terr := g.TransitionGraph("a",
+				WithDeflateNumVals(true), WithMaxNodes(1<<16))
+			_ = terr
+		}, "TransitionGraph src %q", c.src)
+	}
 }

@@ -115,6 +115,13 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) (*Forest, error)
 	return ParseForest(input, grammar, rootRulename)
 }
 
+// LexABNF has been replaced by [EvaluateABNF], please refer to it.
+//
+// Deprecated: replaced by EvaluateABNF.
+func LexABNF(input []byte, f *Forest) (*Grammar, error) {
+	return EvaluateABNF(input, f)
+}
+
 // EvaluateABNF evaluates a parse forest -- produced by parsing an ABNF source
 // against the ABNF meta-grammar -- into a ready-to-use *Grammar.
 func EvaluateABNF(input []byte, f *Forest, opts ...ABNFOption) (*Grammar, error) {
@@ -295,7 +302,7 @@ func (e *feval) element(t *ParseTree) (ElemItf, error) {
 	case "char-val":
 		return e.charVal(c), nil
 	case "num-val":
-		return e.numVal(c)
+		return e.numVal(c), nil
 	case "prose-val":
 		return e.proseVal(c), nil
 	}
@@ -320,7 +327,7 @@ func (e *feval) charVal(t *ParseTree) ElemCharVal {
 	return ElemCharVal{Sensitive: sensitive, Values: value}
 }
 
-func (e *feval) numVal(t *ParseTree) (ElemItf, error) {
+func (e *feval) numVal(t *ParseTree) ElemNumVal {
 	s := e.span(t)
 	base := "d"
 	rest := ""
@@ -343,16 +350,12 @@ func (e *feval) numVal(t *ParseTree) (ElemItf, error) {
 	} else {
 		elems = strings.Split(rest, ".")
 	}
-	// Enforce the Unicode-range invariant unconditionally: a num-val above
-	// U+10FFFF is not representable, and letting it into a Grammar makes every
-	// downstream consumer (recognizer, GLL, Regex, Generate, TransitionGraph)
-	// risk a panic. This holds even when semantic validation is disabled.
-	for _, el := range elems {
-		if err := checkBounds(el, base); err != nil {
-			return nil, err
-		}
-	}
-	return ElemNumVal{Base: base, Status: status, Elems: elems}, nil
+	// A num-val outside the Unicode range is still a well-formed numeric
+	// encoding (legitimate for non-textual / on-wire grammars), so it is kept
+	// as-is here. Strict semantic validation (SemvalABNF) rejects it for textual
+	// use; consumers that match against decoded runes treat an unrepresentable
+	// value as non-matching rather than panicking.
+	return ElemNumVal{Base: base, Status: status, Elems: elems}
 }
 
 func (e *feval) proseVal(t *ParseTree) ElemProseVal {

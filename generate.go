@@ -5,6 +5,7 @@ import (
 	"maps"
 	"math/rand"
 	"strings"
+	"unicode/utf8"
 )
 
 // Generate is an experimental feature that consumes a seed for
@@ -70,12 +71,25 @@ func generateAlt(rand rand.Source, g *Grammar, out *[]byte, alt Alternation, opt
 				switch elem.Status {
 				case StatRange:
 					min, max := numvalToRune(elem.Elems[0], elem.Base), numvalToRune(elem.Elems[1], elem.Base)
-					r := min + (rune(rand.Int63()&0x0F) % (max - min + 1)) // mask 0x0F to keep the 32-bit part (rune size)
-					appendPtr(out, r)
+					// Generation emits UTF-8 text, so clamp to the representable
+					// (Unicode) subset; a range wholly above U+10FFFF (or with
+					// max < min) yields no character.
+					if max > utf8.MaxRune {
+						max = utf8.MaxRune
+					}
+					if min <= utf8.MaxRune && min <= max {
+						r := min + (rune(rand.Int63()&0x0F) % (max - min + 1)) // mask 0x0F to keep the 32-bit part (rune size)
+						appendPtr(out, r)
+					}
 
 				case StatSeries:
 					for _, v := range elem.Elems {
-						appendPtr(out, numvalToRune(v, elem.Base))
+						r := numvalToRune(v, elem.Base)
+						// Skip values that are not real characters; they cannot be
+						// emitted as UTF-8 text.
+						if utf8.ValidRune(r) {
+							appendPtr(out, r)
+						}
 					}
 				}
 

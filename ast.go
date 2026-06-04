@@ -3,6 +3,7 @@ package goabnf
 import (
 	"fmt"
 	"math/rand"
+	"unicode/utf8"
 )
 
 // Generates strings by recursive descent over the grammar AST, so unlike the*
@@ -254,10 +255,22 @@ func (ag *ASTGenerator) genElem(src source, out *[]byte, elem ElemItf, depth int
 		switch e.Status {
 		case StatSeries:
 			for _, v := range e.Elems {
-				*out = append(*out, []byte(string(numvalToRune(v, e.Base)))...)
+				r := numvalToRune(v, e.Base)
+				// Emit only real characters; an out-of-range value cannot appear
+				// in UTF-8 input, so the series would never match anyway.
+				if utf8.ValidRune(r) {
+					*out = append(*out, []byte(string(r))...)
+				}
 			}
 		case StatRange:
 			min, max := numvalToRune(e.Elems[0], e.Base), numvalToRune(e.Elems[1], e.Base)
+			// Emit within the representable (Unicode) subset of the range.
+			if max > utf8.MaxRune {
+				max = utf8.MaxRune
+			}
+			if min > utf8.MaxRune || min > max {
+				break // nothing representable to emit
+			}
 			span := int(max-min) + 1
 			if span < 1 {
 				span = 1

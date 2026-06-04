@@ -483,11 +483,10 @@ func (p *gllParser) matchTerm(s ssym, i int) int {
 			if i >= len(p.input) {
 				return -1
 			}
-			min, ok1 := numvalToRuneOK(v.Elems[0], v.Base)
-			max, ok2 := numvalToRuneOK(v.Elems[1], v.Base)
-			if !ok1 || !ok2 {
-				return -1
-			}
+			// Numeric comparison: a range straddling U+10FFFF matches its rune
+			// subset; numvalToRune never panics (saturates out-of-int32 bounds).
+			min := numvalToRune(v.Elems[0], v.Base)
+			max := numvalToRune(v.Elems[1], v.Base)
 			r, size := utf8.DecodeRune(p.input[i:])
 			if r == utf8.RuneError && size == 1 {
 				return -1
@@ -499,8 +498,10 @@ func (p *gllParser) matchTerm(s ssym, i int) int {
 		case StatSeries:
 			idx := i
 			for k := 0; k < len(v.Elems); k++ {
-				ru, ok := numvalToRuneOK(v.Elems[k], v.Base)
-				if !ok {
+				ru := numvalToRune(v.Elems[k], v.Base)
+				// Series elements must be real characters: an out-of-range value
+				// matches no UTF-8 input (and avoids a spurious U+FFFD match).
+				if !utf8.ValidRune(ru) {
 					return -1
 				}
 				str := string(ru)

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // Regex builds a regular expression that recognises the given rulename.
@@ -101,13 +102,22 @@ type reRepeat struct {
 }
 type reEmpty struct{}
 
+// reNever matches nothing. It represents a num-val a RE2/Unicode pattern cannot
+// express (a value entirely above U+10FFFF), keeping Regex consistent with the
+// recognizer, which also matches nothing in that case.
+type reNever struct{}
+
 func (*reClass) prec() int  { return precAtom }
 func (*reConcat) prec() int { return precConcat }
 func (*reAlt) prec() int    { return precAlt }
 func (*reRepeat) prec() int { return precRepeat }
 func (*reEmpty) prec() int  { return precAtom }
+func (*reNever) prec() int  { return precAtom }
 
 var reEmptyV reNode = &reEmpty{}
+var reNeverV reNode = &reNever{}
+
+func isNever(n reNode) bool { _, ok := n.(*reNever); return ok }
 
 // ---- build (memoised per rule => linear over the grammar DAG) ----
 
@@ -158,11 +168,25 @@ func (b *reBuilder) elem(e ElemItf) reNode {
 	case ElemNumVal:
 		switch v.Status {
 		case StatRange:
-			return &reClass{ranges: []reRange{{numvalToRune(v.Elems[0], v.Base), numvalToRune(v.Elems[1], v.Base)}}}
+			lo := numvalToRune(v.Elems[0], v.Base)
+			hi := min(
+				// RE2 patterns are Unicode (max U+10FFFF). A range straddling that
+				// ceiling is clamped to its representable subset; one wholly above it
+				// matches nothing -- mirroring the recognizer.
+				numvalToRune(v.Elems[1], v.Base), utf8.MaxRune)
+			if lo > utf8.MaxRune || lo > hi {
+				return reNeverV
+			}
+			return &reClass{ranges: []reRange{{lo, hi}}}
 		default: // StatSeries is a CONCATENATION of values (a fixed sequence).
 			parts := make([]reNode, 0, len(v.Elems))
 			for _, s := range v.Elems {
 				c := numvalToRune(s, v.Base)
+				// A series element must be a real character; if it is not, the
+				// whole sequence can never match any (Unicode) input.
+				if !utf8.ValidRune(c) {
+					return reNeverV
+				}
 				parts = append(parts, &reClass{ranges: []reRange{{c, c}}})
 			}
 			return &reConcat{parts: parts}
@@ -214,22 +238,29 @@ func simplify(n reNode, memo map[reNode]reNode) reNode {
 		res = &reClass{ranges: normalizeRanges(v.ranges)}
 	case *reEmpty:
 		res = reEmptyV
+	case *reNever:
+		res = reNeverV
 	case *reConcat:
 		parts := make([]reNode, 0, len(v.parts))
+		never := false
 		for _, p := range v.parts {
 			sp := simplify(p, memo)
 			switch x := sp.(type) {
 			case *reEmpty: // drop: empty in a concatenation contributes nothing
+			case *reNever: // one un-matchable part makes the whole sequence un-matchable
+				never = true
 			case *reConcat:
 				parts = append(parts, x.parts...) // flatten
 			default:
 				parts = append(parts, sp)
 			}
 		}
-		switch len(parts) {
-		case 0:
+		switch {
+		case never:
+			res = reNeverV
+		case len(parts) == 0:
 			res = reEmptyV
-		case 1:
+		case len(parts) == 1:
 			res = parts[0]
 		default:
 			res = &reConcat{parts: parts}
@@ -238,6 +269,9 @@ func simplify(n reNode, memo map[reNode]reNode) reNode {
 		opts := make([]reNode, 0, len(v.opts))
 		for _, o := range v.opts {
 			so := simplify(o, memo)
+			if isNever(so) { // a never-matching branch is dead; drop it
+				continue
+			}
 			if x, ok := so.(*reAlt); ok {
 				opts = append(opts, x.opts...) // flatten
 			} else {
@@ -264,7 +298,8 @@ func simplify(n reNode, memo map[reNode]reNode) reNode {
 		merged = append(merged, others...)
 		switch len(merged) {
 		case 0:
-			res = reEmptyV
+			// Every branch was un-matchable: the alternation matches nothing.
+			res = reNeverV
 		case 1:
 			res = merged[0]
 		default:
@@ -273,6 +308,14 @@ func simplify(n reNode, memo map[reNode]reNode) reNode {
 	case *reRepeat:
 		sub := simplify(v.sub, memo)
 		switch {
+		case isNever(sub):
+			// Zero occurrences are allowed iff min == 0 (then it matches empty);
+			// otherwise the repetition is itself un-matchable.
+			if v.min == 0 {
+				res = reEmptyV
+			} else {
+				res = reNeverV
+			}
 		case isEmpty(sub):
 			res = reEmptyV
 		case v.min == 1 && v.max == 1:
@@ -348,6 +391,9 @@ func (rr *reRenderer) render(sb *strings.Builder, n reNode, ctx int) {
 		if !grp {
 			rr.write(sb, "(?:)")
 		}
+	case *reNever:
+		// Negated full-Unicode class: matches no character, hence nothing.
+		rr.write(sb, "[^\\x00-\\x{10ffff}]")
 	case *reClass:
 		rr.write(sb, renderClass(v))
 	case *reConcat:

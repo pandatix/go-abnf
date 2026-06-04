@@ -6,6 +6,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	uuid "github.com/hashicorp/go-uuid"
 )
@@ -922,6 +923,14 @@ func nodeEmit(node *Node, tpos int32) (prod []byte, vtotal int32) {
 			return prod, 1
 		case StatRange:
 			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
+			// The graph operates over runes; clamp to the Unicode range so an
+			// out-of-range bound cannot overflow the int32 count below.
+			if max > utf8.MaxRune {
+				max = utf8.MaxRune
+			}
+			if min > utf8.MaxRune || min > max {
+				return nil, 1 // no representable character in this range
+			}
 			r := rune(min + tpos)
 			return []byte(string(r)), max - min + 1
 		}
@@ -1347,6 +1356,16 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 		switch v.Status {
 		case StatRange:
 			min, max := numvalToInt32(v.Elems[0], v.Base), numvalToInt32(v.Elems[1], v.Base)
+			// One node is enumerated per rune; clamp to the Unicode range so an
+			// out-of-range bound cannot overflow the count (int32) and bypass the
+			// node budget, which would turn this loop into a DoS. A range wholly
+			// above U+10FFFF contributes no node (it matches nothing).
+			if max > utf8.MaxRune {
+				max = utf8.MaxRune
+			}
+			if min > utf8.MaxRune || min > max {
+				return
+			}
 			if err := m.reserve(int(max - min + 1)); err != nil {
 				return nil, nil, err
 			}

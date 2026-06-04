@@ -1,6 +1,7 @@
 package goabnf
 
 import (
+	"math"
 	"strconv"
 	"strings"
 )
@@ -20,136 +21,66 @@ func int32ToNumval(v int32, base string) string {
 	return strconv.FormatInt(int64(v), 10)
 }
 
-// numvalToRune converts a numeric value given its base into the corresponding rune.
-func numvalToRune(str, base string) rune {
-	if err := checkBounds(str, base); err != nil {
-		panic(err)
+// baseRadix maps an ABNF num-val base marker (bin/dec/hex) to its integer radix.
+func baseRadix(base string) int {
+	switch base {
+	case "B", "b":
+		return 2
+	case "D", "d":
+		return 10
+	case "X", "x":
+		return 16
 	}
+	return 10
+}
+
+// numvalToUint64 parses a num-val literal in the given base into its numeric
+// value. ok is false only when the literal does not fit in 64 bits (or is
+// malformed), which lets callers degrade gracefully instead of overflowing
+// silently. This is the single overflow-safe entry point every other conversion
+// builds on.
+//
+// A num-val is a plain non-negative integer, not intrinsically a Unicode scalar:
+// values beyond U+10FFFF are legitimate (e.g. for non-textual / on-wire
+// grammars). Unicode is handled as the common case at match time; this layer is
+// no longer Unicode-bounded.
+func numvalToUint64(str, base string) (uint64, bool) {
+	v, err := strconv.ParseUint(str, baseRadix(base), 64)
+	if err != nil {
+		return 0, false
+	}
+	return v, true
+}
+
+// numvalToInt32 converts a num-val into an int32 codepoint. It never panics: a
+// value that does not fit a positive int32 is saturated to math.MaxInt32, which
+// is above the maximum Unicode scalar (U+10FFFF) and therefore matches no decoded
+// rune. A range bound that merely straddles the Unicode ceiling still covers its
+// representable (Unicode) subset, because the saturated upper bound stays above
+// every rune.
+func numvalToInt32(str, base string) int32 {
+	v, ok := numvalToUint64(str, base)
+	if !ok || v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	return int32(v)
+}
+
+// numvalToRune converts a num-val into the corresponding rune. It never panics;
+// a value beyond the Unicode range yields a rune that no UTF-8 input can produce,
+// so callers matching against decoded runes simply find no match. Callers that
+// require text validity (e.g. a num-val series, which must denote real
+// characters) should additionally check utf8.ValidRune.
+func numvalToRune(str, base string) rune {
 	return rune(numvalToInt32(str, base))
 }
 
-// numvalToRuneOK is the panic-free counterpart of numvalToRune: it reports
-// ok=false when the value is outside the Unicode range instead of panicking.
-// Such a num-val can never equal a decoded rune (runes are at most U+10FFFF),
-// so matchers treat ok=false as "no match", keeping a grammar that skipped
-// validation from crashing the parser.
-func numvalToRuneOK(str, base string) (rune, bool) {
-	if checkBounds(str, base) != nil {
-		return 0, false
-	}
-	return rune(numvalToInt32(str, base)), true
-}
-
-func numvalToInt32(str, base string) (out int32) {
-	if err := checkBounds(str, base); err != nil {
-		panic(err)
-	}
-
-	str = strings.TrimLeft(str, "0")
-	switch base {
-	case "B", "b":
-		out = binToInt32(str)
-
-	case "D", "d":
-		out = decToInt32(str)
-
-	case "X", "x":
-		out = hexToInt32(str)
-	}
-	return
-}
-
-func binToInt32(str string) (out int32) {
-	for i := 0; i < len(str); i++ {
-		cv := 0
-		if str[i] == '1' {
-			cv = 1
-		}
-		out += int32(cv * pow(2, len(str)-i-1))
-	}
-	return
-}
-
-func decToInt32(str string) (out int32) {
-	for i := 0; i < len(str); i++ {
-		cv := 0
-		switch str[i] {
-		case '1':
-			cv = 1
-		case '2':
-			cv = 2
-		case '3':
-			cv = 3
-		case '4':
-			cv = 4
-		case '5':
-			cv = 5
-		case '6':
-			cv = 6
-		case '7':
-			cv = 7
-		case '8':
-			cv = 8
-		case '9':
-			cv = 9
-		}
-		out += int32(cv * pow(10, len(str)-i-1))
-	}
-	return
-}
-
-func hexToInt32(str string) (out int32) {
-	for i := 0; i < len(str); i++ {
-		cv := 0
-		switch str[i] {
-		case '1':
-			cv = 1
-		case '2':
-			cv = 2
-		case '3':
-			cv = 3
-		case '4':
-			cv = 4
-		case '5':
-			cv = 5
-		case '6':
-			cv = 6
-		case '7':
-			cv = 7
-		case '8':
-			cv = 8
-		case '9':
-			cv = 9
-		case 'A', 'a':
-			cv = 10
-		case 'B', 'b':
-			cv = 11
-		case 'C', 'c':
-			cv = 12
-		case 'D', 'd':
-			cv = 13
-		case 'E', 'e':
-			cv = 14
-		case 'F', 'f':
-			cv = 15
-		}
-		out += int32(cv * pow(16, len(str)-i-1))
-	}
-	return
-}
-
-// returns v^e
-func pow(v, e int) int {
-	if e == 0 {
-		return 1
-	}
-	result := v
-	for i := 1; i < e; i++ {
-		result *= v
-	}
-	return result
-}
-
+// checkBounds enforces the Unicode-range invariant (value <= U+10FFFF). It is
+// the strict-validation path used by SemvalABNF: with validation enabled (the
+// default, and the common textual case) a num-val outside the Unicode range is
+// rejected. The conversion helpers above are deliberately broader -- a num-val is
+// a plain integer and larger values are legitimate for non-textual grammars -- so
+// without validation such values are accepted and handled (matched as no rune).
 func checkBounds(str, base string) error {
 	str = strings.TrimLeft(str, "0")
 	switch base {

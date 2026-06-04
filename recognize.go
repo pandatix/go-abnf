@@ -237,11 +237,11 @@ func (r *recognizer) computeElem(elem ElemItf, index int) map[int]bool {
 			if index >= len(r.input) {
 				return out
 			}
-			min, ok1 := numvalToRuneOK(v.Elems[0], v.Base)
-			max, ok2 := numvalToRuneOK(v.Elems[1], v.Base)
-			if !ok1 || !ok2 {
-				return out
-			}
+			// Bounds are numeric: a range straddling the Unicode ceiling still
+			// matches its representable (rune) subset, one wholly above it matches
+			// nothing. numvalToRune never panics (saturates out-of-int32 bounds).
+			min := numvalToRune(v.Elems[0], v.Base)
+			max := numvalToRune(v.Elems[1], v.Base)
 			ru, size := utf8.DecodeRune(r.input[index:])
 			if ru == utf8.RuneError && size == 1 {
 				return out
@@ -252,8 +252,11 @@ func (r *recognizer) computeElem(elem ElemItf, index int) map[int]bool {
 		case StatSeries:
 			idx := index
 			for i := 0; i < len(v.Elems); i++ {
-				ru, ok := numvalToRuneOK(v.Elems[i], v.Base)
-				if !ok {
+				ru := numvalToRune(v.Elems[i], v.Base)
+				// A series element must denote a real character; an out-of-range
+				// value can never appear in UTF-8 input, so the series matches
+				// nothing (and we avoid a spurious U+FFFD coincidence).
+				if !utf8.ValidRune(ru) {
 					return out
 				}
 				s := string(ru)
