@@ -161,23 +161,82 @@ func enumerate(alphabet string, maxLen int) []string {
 	return out
 }
 
-// Test_ParseForest_RepetitionBoundDoS guards the lowering DoS: an absurd but
-// well-formed repetition bound must be rejected by the slot budget instead of
-// unrolling into billions of nonterminals (or overflowing the stack).
-func Test_ParseForest_RepetitionBoundDoS(t *testing.T) {
+// Test_ParseForest_RepetitionBound covers native counted repetition: an absurd
+// but well-formed bound must NOT unroll into the slot grammar. It lowers in O(1)
+// and the bound is enforced at parse time, so a huge bound parses promptly and
+// the count is still exact. (Previously this DoS was only mitigated by rejecting
+// the grammar via the slot budget; it is now handled directly.)
+func Test_ParseForest_RepetitionBound(t *testing.T) {
+	// Exactly 9999999999 copies: lowers and parses with no error and no DoS;
+	// a 1-character input is correctly rejected (one copy is not enough).
 	g := mustGrammar("a = 9999999999\"x\"\r\n")
-	_, err := ParseForest([]byte("x"), g, "a")
-	require.Error(t, err)
-	assert.IsType(t, &ErrGrammarTooLarge{}, err)
+	f, err := ParseForest([]byte("x"), g, "a")
+	require.NoError(t, err)
+	assert.False(t, f.Valid(), "one copy must not satisfy an exact bound of 9999999999")
 
-	// A caller that really wants it can raise the budget; legitimate bounded
-	// repetitions stay well within the default.
+	// An unbounded-from-zero huge cap matches a short input promptly.
+	g0 := mustGrammar("a = 0*9999999999\"x\"\r\n")
+	for in, want := range map[string]bool{"": true, "xxx": true} {
+		f, err := ParseForest([]byte(in), g0, "a")
+		require.NoErrorf(t, err, "input %q", in)
+		assert.Equalf(t, want, f.Valid(), "input %q", in)
+	}
+
+	// Legitimate bounded repetition: exact count enforcement.
 	g2 := mustGrammar("a = 2*4\"x\"\r\n")
 	for in, want := range map[string]bool{"x": false, "xx": true, "xxxx": true, "xxxxx": false} {
 		f, err := ParseForest([]byte(in), g2, "a")
 		require.NoErrorf(t, err, "input %q", in)
 		assert.Equalf(t, want, f.Valid(), "input %q", in)
 	}
+}
+
+// Test_U_NativeRepetition pins the native counted-repetition semantics that the
+// 2-alternate self-recursive lowering plus a parse-time count must satisfy: the
+// forest is structurally correct (ambiguity counts), the bound is enforced for a
+// variable-width element (the count-conflation guard), and a huge minimum over a
+// short input is promptly rejected rather than unrolled.
+func Test_U_NativeRepetition(t *testing.T) {
+	// Variable-width element under a bounded count. Over "aaa":
+	//   count 2: "a"+"aa", "aa"+"a"  -> 2 derivations
+	//   count 3: "a"+"a"+"a"         -> 1 derivation
+	// All within {2,3}, so the forest must hold exactly 3 trees.
+	g := mustGrammar("a = 2*3(\"a\" / \"aa\")\r\n")
+	f, err := ParseForest([]byte("aaa"), g, "a")
+	require.NoError(t, err)
+	require.True(t, f.Valid())
+	assert.Equal(t, "3", f.NumTrees().String(), "variable-width {2,3} over aaa")
+
+	// Exactly two copies of a variable-width element over "aaaa": only "aa"+"aa".
+	g2 := mustGrammar("a = 2(\"a\" / \"aa\")\r\n")
+	f2, err := ParseForest([]byte("aaaa"), g2, "a")
+	require.NoError(t, err)
+	require.True(t, f2.Valid())
+	assert.Equal(t, "1", f2.NumTrees().String(), "exact 2 of a|aa over aaaa")
+
+	// Native repetition must agree with the recognizer across the bound edges.
+	for _, tc := range []struct {
+		src string
+		in  string
+	}{
+		{"a = 2*3\"a\"\r\n", "a"}, {"a = 2*3\"a\"\r\n", "aa"},
+		{"a = 2*3\"a\"\r\n", "aaa"}, {"a = 2*3\"a\"\r\n", "aaaa"},
+		{"a = *(1*2\"a\")\r\n", "aaaaa"}, {"a = 1*2(2*3\"a\")\r\n", "aaaaaa"},
+	} {
+		gg := mustGrammar(tc.src)
+		f, err := ParseForest([]byte(tc.in), gg, "a")
+		require.NoErrorf(t, err, "%s on %q", tc.src, tc.in)
+		rec, err := gg.IsValid("a", []byte(tc.in))
+		require.NoErrorf(t, err, "%s on %q", tc.src, tc.in)
+		assert.Equalf(t, rec, f.Valid(), "GLL vs recognizer: %s on %q", tc.src, tc.in)
+	}
+
+	// Huge minimum, short input: prompt rejection (count enforced at parse time,
+	// not unrolled into the grammar).
+	gbig := mustGrammar("a = 1000000*\"x\"\r\n")
+	fbig, err := ParseForest([]byte("xx"), gbig, "a")
+	require.NoError(t, err)
+	assert.False(t, fbig.Valid(), "two copies cannot satisfy a minimum of 1000000")
 }
 
 // Test_ParseForest_UnsatisfiableBound checks that a max < min repetition is the

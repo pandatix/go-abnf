@@ -44,6 +44,15 @@ type sgNT struct {
 	isRule   bool     // corresponds to an original ABNF rule (kept in the tree)
 	ruleName string   // original rule name when isRule
 	alts     [][]ssym // alternates; every alternate has >= 1 symbol
+
+	// Native counted repetition. When isRep, the nonterminal stands for
+	// `repElem{repMin,repMax}` and its two alternates are the self-recursive
+	// encoding `R ::= eps | repElem R`. The [repMin,repMax] bound is enforced at
+	// parse time by a count carried in the GLL state (see addRepAlts), so the
+	// slot grammar stays O(1) in the repetition bound instead of unrolling it.
+	isRep  bool
+	repMin int
+	repMax int // inf (== -1) means unbounded
 }
 
 type slotGrammar struct {
@@ -102,6 +111,9 @@ func (c *lowerer) rule(name string) int {
 	if existed {
 		return id
 	}
+	if c.budgetExceeded() {
+		return id
+	}
 	rule := GetRule(name, c.g.Rulemap)
 	if rule == nil {
 		// Unknown rule: a nonterminal with no alternates derives nothing.
@@ -138,82 +150,31 @@ func (c *lowerer) rep(rep Repetition) ssym {
 	if existed {
 		return ssym{kind: symNonterm, nt: id}
 	}
+	if c.budgetExceeded() {
+		return ssym{kind: symNonterm, nt: id}
+	}
 	// A malformed bound where max < min accepts nothing: leave the rep
 	// nonterminal with no alternates so it derives the empty language (it is
 	// unsatisfiable, NOT unbounded). This matches the recognizer.
 	if rep.Max != inf && rep.Max < rep.Min {
 		return ssym{kind: symNonterm, nt: id}
 	}
+	// Lower to the self-recursive encoding R ::= eps | E R, a single nonterminal
+	// regardless of the bound. The [Min,Max] count is enforced at parse time
+	// (addRepAlts), so lowering is O(1) in the bound and there is no per-count
+	// nonterminal explosion (the old optTail/reqOne unrolling, which scaled with
+	// Max-Min and Min respectively).
 	esym := c.elem(rep.Element)
-	var k int // number of optional occurrences; -1 == unbounded
-	if rep.Max == inf {
-		k = -1
-	} else {
-		k = rep.Max - rep.Min
+	self := ssym{kind: symNonterm, nt: id}
+	c.sg.nts[id].alts = [][]ssym{
+		{{kind: symEps}}, // alt 0: stop
+		{esym, self},     // alt 1: consume one element, then loop
 	}
-	tail := c.optTail(esym, k)
-	// Prepend `Min` required occurrences as a chain ending in the tail.
-	head := tail
-	for n := 0; n < rep.Min; n++ {
-		if c.budgetExceeded() {
-			break
-		}
-		head = c.reqOne(esym, head)
-	}
-	// Point the rep nonterminal at the head's alternates.
-	c.sg.nts[id].alts = c.sg.nts[head].alts
 	c.sg.nts[id].label = rep.String()
-	return ssym{kind: symNonterm, nt: id}
-}
-
-// optTail builds `T ::= eps | E T` (unbounded) or the bounded chain.
-// optTail builds the optional/unbounded tail of a repetition without deep
-// recursion. Unbounded (k<0) is a single self-referential nonterminal
-// T ::= eps | E T. Bounded (k>=0) is the chain O_0 ::= eps,
-// O_j ::= eps | E O_(j-1), built iteratively so a huge finite bound is limited
-// by the slot budget instead of overflowing the Go stack.
-func (c *lowerer) optTail(esym ssym, k int) int {
-	base := "opttail:" + symKey(esym) + "|"
-	if id, ok := c.sg.index[base+strconv.Itoa(k)]; ok {
-		return id
-	}
-	if k < 0 {
-		id, _ := c.sg.reserve(base+"-1", "opt*")
-		c.sg.nts[id].alts = [][]ssym{
-			{{kind: symEps}},
-			{esym, {kind: symNonterm, nt: id}},
-		}
-		return id
-	}
-	prev, _ := c.sg.reserve(base+"0", "opt0")
-	c.sg.nts[prev].alts = [][]ssym{{{kind: symEps}}}
-	for j := 1; j <= k; j++ {
-		if c.budgetExceeded() {
-			return prev
-		}
-		jid, existed := c.sg.reserve(base+strconv.Itoa(j), "optj")
-		if existed {
-			prev = jid
-			continue
-		}
-		c.sg.nts[jid].alts = [][]ssym{
-			{{kind: symEps}},
-			{esym, {kind: symNonterm, nt: prev}},
-		}
-		prev = jid
-	}
-	return prev
-}
-
-// reqOne builds `R ::= E next`.
-func (c *lowerer) reqOne(esym ssym, next int) int {
-	key := "req:" + symKey(esym) + "|" + strconv.Itoa(next)
-	id, existed := c.sg.reserve(key, "req")
-	if existed {
-		return id
-	}
-	c.sg.nts[id].alts = [][]ssym{{esym, {kind: symNonterm, nt: next}}}
-	return id
+	c.sg.nts[id].isRep = true
+	c.sg.nts[id].repMin = rep.Min
+	c.sg.nts[id].repMax = rep.Max
+	return self
 }
 
 func (c *lowerer) elem(e ElemItf) ssym {
@@ -236,6 +197,9 @@ func (c *lowerer) group(v ElemGroup) int {
 	if existed {
 		return id
 	}
+	if c.budgetExceeded() {
+		return id
+	}
 	c.sg.nts[id].alts = c.alts(v.Alternation)
 	return id
 }
@@ -246,21 +210,13 @@ func (c *lowerer) option(v ElemOption) int {
 	if existed {
 		return id
 	}
+	if c.budgetExceeded() {
+		return id
+	}
 	alts := [][]ssym{{{kind: symEps}}}
 	alts = append(alts, c.alts(v.Alternation)...)
 	c.sg.nts[id].alts = alts
 	return id
-}
-
-func symKey(s ssym) string {
-	switch s.kind {
-	case symNonterm:
-		return "n" + strconv.Itoa(s.nt)
-	case symEps:
-		return "e"
-	default:
-		return "t" + s.term.String()
-	}
 }
 
 func canon(name string) string {
@@ -320,6 +276,7 @@ type slot struct{ nt, alt, dot int }
 type gssNode struct {
 	ret     slot // return slot
 	pos     int
+	rc      int // repetition count carried for native counted repetition (0 otherwise)
 	edges   []gssEdge
 	edgeSet map[gssEdge]bool
 }
@@ -330,10 +287,11 @@ type gssEdge struct {
 }
 
 type descriptor struct {
-	L slot
-	u *gssNode
-	i int
-	w *gnode
+	L  slot
+	u  *gssNode
+	i  int
+	w  *gnode
+	rc int // repetition count (0 outside a counted repetition)
 }
 
 type gllParser struct {
@@ -364,10 +322,11 @@ type nodeKey struct {
 type gssKey struct {
 	ret slot
 	pos int
+	rc  int
 }
 
-func (p *gllParser) add(L slot, u *gssNode, i int, w *gnode) {
-	d := descriptor{L, u, i, w}
+func (p *gllParser) add(L slot, u *gssNode, i int, w *gnode, rc int) {
+	d := descriptor{L, u, i, w, rc}
 	if p.seen[d] {
 		return
 	}
@@ -375,25 +334,25 @@ func (p *gllParser) add(L slot, u *gssNode, i int, w *gnode) {
 	p.work = append(p.work, d)
 }
 
-func (p *gllParser) gssNodeFor(ret slot, pos int) *gssNode {
-	k := gssKey{ret, pos}
+func (p *gllParser) gssNodeFor(ret slot, pos, rc int) *gssNode {
+	k := gssKey{ret, pos, rc}
 	if v, ok := p.gss[k]; ok {
 		return v
 	}
-	v := &gssNode{ret: ret, pos: pos, edgeSet: map[gssEdge]bool{}}
+	v := &gssNode{ret: ret, pos: pos, rc: rc, edgeSet: map[gssEdge]bool{}}
 	p.gss[k] = v
 	return v
 }
 
-func (p *gllParser) create(L slot, u *gssNode, i int, w *gnode) *gssNode {
-	v := p.gssNodeFor(L, i)
+func (p *gllParser) create(L slot, u *gssNode, i int, w *gnode, rc int) *gssNode {
+	v := p.gssNodeFor(L, i, rc)
 	e := gssEdge{w: w, to: u}
 	if !v.edgeSet[e] {
 		v.edgeSet[e] = true
 		v.edges = append(v.edges, e)
 		for z := range p.popped[v] {
 			y := p.getNodeP(L, w, z)
-			p.add(L, u, z.End, y)
+			p.add(L, u, z.End, y, rc)
 		}
 	}
 	return v
@@ -409,7 +368,7 @@ func (p *gllParser) pop(u *gssNode, i int, z *gnode) {
 	p.popped[u][z] = true
 	for _, e := range u.edges {
 		y := p.getNodeP(u.ret, e.w, z)
-		p.add(u.ret, e.to, i, y)
+		p.add(u.ret, e.to, i, y, u.rc)
 	}
 }
 
@@ -522,7 +481,7 @@ func (p *gllParser) parse() *gnode {
 	startNT := p.sg.start
 	p.u0 = &gssNode{ret: slot{-1, -1, -1}, pos: 0}
 	for ai := range p.sg.nts[startNT].alts {
-		p.add(slot{startNT, ai, 0}, p.u0, 0, nil)
+		p.add(slot{startNT, ai, 0}, p.u0, 0, nil, 0)
 	}
 	for len(p.work) > 0 {
 		if p.aborted {
@@ -537,7 +496,7 @@ func (p *gllParser) parse() *gnode {
 }
 
 func (p *gllParser) process(d descriptor) {
-	L, u, i, w := d.L, d.u, d.i, d.w
+	L, u, i, w, rc := d.L, d.u, d.i, d.w, d.rc
 	for {
 		prod := p.sg.nts[L.nt].alts[L.alt]
 		if L.dot == len(prod) {
@@ -551,9 +510,22 @@ func (p *gllParser) process(d descriptor) {
 		s := prod[L.dot]
 		if s.kind == symNonterm {
 			ret := slot{L.nt, L.alt, L.dot + 1}
-			v := p.create(ret, u, i, w)
-			for ai := range p.sg.nts[s.nt].alts {
-				p.add(slot{s.nt, ai, 0}, v, i, nil)
+			// Preserve the current repetition frame count across the sub-parse so
+			// that when it returns we resume the loop with the right count.
+			v := p.create(ret, u, i, w, rc)
+			if p.sg.nts[s.nt].isRep {
+				// Native counted repetition: a self-reference inside the rep's own
+				// loop alternate continues the chain (count+1); any other reference
+				// starts a fresh chain at count 0.
+				childRC := 0
+				if s.nt == L.nt {
+					childRC = capRC(rc, p.sg.nts[s.nt])
+				}
+				p.addRepAlts(s.nt, v, i, childRC)
+			} else {
+				for ai := range p.sg.nts[s.nt].alts {
+					p.add(slot{s.nt, ai, 0}, v, i, nil, 0)
+				}
 			}
 			return
 		}
@@ -566,6 +538,36 @@ func (p *gllParser) process(d descriptor) {
 		w = p.getNodeP(next, w, cR)
 		i = j
 		L = next
+	}
+}
+
+// capRC returns the count after consuming one more element of a repetition R
+// currently at count rc. For an unbounded repetition it saturates at repMin
+// (once the minimum is met the exact count no longer matters), which keeps the
+// reachable counts -- and hence the GLL state -- finite even when the element is
+// nullable.
+func capRC(rc int, nt *sgNT) int {
+	next := rc + 1
+	if nt.repMax == inf && next > nt.repMin {
+		next = nt.repMin
+	}
+	return next
+}
+
+// addRepAlts seeds the two alternates of a repetition nonterminal, gated by the
+// current count rc: it may stop (alt 0) only once the minimum is met, and may
+// consume another element (alt 1) only while under the maximum. This enforces
+// the {repMin,repMax} bound in parser state instead of unrolling it into the
+// grammar, mirroring the recognizer's c>=min / c<max gates. rc is carried in the
+// GSS key so two derivations that reach the same point with different committed
+// counts are kept distinct (no over-/under-counting via shared continuations).
+func (p *gllParser) addRepAlts(ntID int, v *gssNode, i, rc int) {
+	nt := p.sg.nts[ntID]
+	if rc >= nt.repMin {
+		p.add(slot{ntID, 0, 0}, v, i, nil, rc) // stop: alt 0 == [eps]
+	}
+	if nt.repMax == inf || rc < nt.repMax {
+		p.add(slot{ntID, 1, 0}, v, i, nil, rc) // loop: alt 1 == [element, self]
 	}
 }
 
