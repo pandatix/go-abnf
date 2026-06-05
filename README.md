@@ -12,70 +12,130 @@
 	<a href="https://bestpractices.coreinfrastructure.org/en/projects/7840"><img src="https://img.shields.io/cii/summary/7840?style=for-the-badge&label=openssf%20best%20practices" alt="OpenSSF Best Practices Summary"></a>
 </div>
 
-Go module to handle Augmented Backus-Naur Form (ABNF), providing a large API.
-It implements RFC 5234 and 7405, with Errata 2968 and 3076.
+A dependency-free Go module for Augmented Backus-Naur Form (ABNF). It parses an ABNF grammar into a data structure and then lets you *recognise*, *parse*, *generate*, *compile to regex*, *visualise*, and even *generate a standalone Go parser* from it. It implements [RFC 5234](https://www.rfc-editor.org/rfc/rfc5234) and [RFC 7405](https://www.rfc-editor.org/rfc/rfc7405), with Errata [2968](https://errata.rfc-editor.org/eid2968/) and [3076](https://errata.rfc-editor.org/eid3076/).
 
-Capabilities:
- - [X] parse ABNF (to manipulable datastructure ; with cycle detection)
- - [X] compile ABNF to regex
- - [X] create a minimal set of tests that covers the full grammar
- - [X] generate a visual representation of the ABNF grammar provided (mermaid)
- - [X] create an ABNF fuzzer for your modules (version >= Go1.18beta1)
- - [X] support Unicode rather than UTF-8
+> [!NOTE]
+> **Intended use.** Go-ABNF is built first and foremost as a **testing oracle**.
+> Because it can turn one grammar into several independent representations (recognizer, parse forest, regex, generator, transition graph), it is well suited to **differential testing and fuzzing**: generate inputs from a grammar, feed them to your own implementation, and cross-check the verdicts against this library - or cross-check the library's own views against each other. It favors correctness and generality (ambiguous and left-recursive grammars, Unicode) over being the fastest production parser.
+
+## Capabilities
+
+- Parse ABNF into a manipulable `*Grammar` (with cycle / DAG detection).
+- Recognize input against a grammar - ambiguous and left-recursive grammars included.
+- Build a full **parse forest** (SPPF) or **binary-subtree set** (BSR): count trees, detect ambiguity, extract a tree.
+- Compile a grammar to a **regular expression** (precedence-aware, size-bounded).
+- **Generate** inputs (random walk), a minimal covering test set, or structured ASTs - for fuzzing.
+- **Visualize** a grammar as a transition graph (Mermaid).
+- **Generate a standalone, specialized Go parser** from a grammar (`go generate`).
+- Unicode code points and 64-bit numeric values; bounded against DoS.
+
+```mermaid
+flowchart TD
+	A["ABNF text"] -->|ParseABNF| G["*Grammar"]
+	G -->|IsValid| R["recognise<br/>(valid?)"]
+	G -->|ParseForest / ParseBSR| F["parse forest<br/>(trees, ambiguity)"]
+	G -->|Regex| X["regular expression"]
+	G -->|Generate / ASTGenerator| S["sample inputs"]
+	G -->|TransitionGraph| T["graph (Mermaid)"]
+	G -->|GenerateGoParser| C["standalone Go parser"]
+	S -. feed .-> SUT["your implementation"]
+	R -. cross-check .- F
+	F -. cross-check .- X
+```
 
 ## How it works
 
-Under the hood, `go-abnf` is a dependency-free brute-force parser. It enumerates all possibilities for a given grammar and an input, and returns all possible paths. Those then have to be evaluated in order to produce a new grammar.
+ABNF is *self-describing*: its own syntax is written in ABNF. Go-ABNF bootstraps from a handwritten parse/evaluation of that meta-grammar, after which any valid grammar parsed by the library can in turn be used to parse new input - so the engine is generic, not specialized to ABNF.
 
-As this implementation is not adhesive to the ABNF grammar of the ABNF grammar as defined in RFC 5234, updated by RFC 7405 and fixed by Erratum 2968 and 3076, it enables genericity.
-This imply that for any valid grammar in ABNF that is properly evaluated, if you can write an evaluator for this grammar, you can parse new input with the original grammar. To init this loop, we had to hardcode the manual parsing and evaluation of the ABNF grammar, reviewed multiple times.
+Two parse paths exist by design:
+- **Recognition** (`Grammar.IsValid`) answers *does this input match?* by tracking the set of reachable input positions. It never materializes a tree, so it is cheap and is the reference verdict for the other paths.
+- **Parsing** builds a derivation representation using a **GLL** engine [1], which handles arbitrary context-free grammars including ambiguity and (left/right/hidden) recursion. Two representations are available over the same engine: a **Shared Packed Parse Forest** [2] (`ParseForest`) and a **Binary Subtree Set** [3] (`ParseBSR`). Both expose `Valid`, `NumTrees`, `Ambiguous` and `Tree`.
 
-<div align="center">
-	<img src="res/grammar.excalidraw.png" width="800px">
-</div>
+Repetition (`Min*Max element`) is handled *natively*: it lowers to a single self-recursive nonterminal and the bound is enforced by a counter carried in parser state, rather than unrolled - so a grammar like `0*9999999999 "x"` costs $O(1)$ to set up instead of exhausting memory.
 
-Examples can be found in [the examples directory](examples/)
+The generated-parser work targets BSR representation [3], in the spirit of [GoGLL](https://github.com/goccmack/gogll).
 
-## Fuzzing
+References:
+- [1] _E. Scott, A. Johnstone. "GLL Parsing," in Electronic Notes in Theoretical Computer Science, vol. 253, no. 7, pp. 177-189, 2010._
+- [2] _E. Scott, A. Johnstone. "GLL parse-tree generation," in Science of Computer Programming, vol. 78, no. 10, pp. 1828-1844, 2013._
+- [3] _E. Scott, A. Johnstone, L. van Binsbergen. "Derivation representation using binary subtree sets," in Science of Computer Programming, vol. 175, pp. 63-84, 2019._
 
-As go-abnf revolves around grammars, you can use a random walk to traverse its graph and efficiently generate valid inputs according to a given grammar.
+## Usage
 
-This is particularly powerful when you want to fuzz Go implementations that require a very specific input format that the Go's fuzzing engine can't produce.
-
-You can use go-abnf to efficiently produce test cases, as follows.
+Parse a grammar, then recognize or parse input:
 
 ```go
-package example
+g, err := goabnf.ParseABNF(grammarBytes) // []byte of ABNF, CRLF line endings
+if err != nil { /* ... */ }
 
-import (
-	_ "embed"
-	"testing"
+ok, _ := g.IsValid("rule", input)          // boolean recognizer
 
-	goabnf "github.com/pandatix/go-abnf"
-)
+f, _ := goabnf.ParseForest(input, g, "rule")
+fmt.Println(f.Valid(), f.NumTrees(), f.Ambiguous())
 
-//go:embed my-grammar.abnf
-var myGrammar []byte
+bf, _ := goabnf.ParseBSR(input, g, "rule") // same answers, BSR representation
+```
 
-func FuzzFunction(f *testing.F) {
+Compile to a regular expression, or render a transition graph:
+
+```go
+re, _ := g.Regex("rule", goabnf.WithMaxRegexLen(4096))
+
+tg, _ := g.TransitionGraph("rule")
+fmt.Println(tg.ToMermaid())
+```
+
+### As a fuzzing oracle
+
+Generate inputs from a grammar to drive Go's fuzzer, even when the input format is too specific for the engine to discover on its own:
+```go
+func FuzzMyParser(f *testing.F) {
 	g, err := goabnf.ParseABNF(myGrammar)
-	if err != nil {
-		f.Fatal(err)
-	}
+	if err != nil { f.Fatal(err) }
 
 	f.Fuzz(func(t *testing.T, seed int64) {
-		// Generate a random test case based on the seed
-		b, _ := g.Generate(seed, "a",
-			goabnf.WithRepMax(15),      // Limit repetitions to 15
-			goabnf.WithThreshold(1024), // Stop ASAP input generation if reached 1024 bytes
+		input, _ := g.Generate(seed, "rule",
+			goabnf.WithRepMax(15),      // cap repetitions
+			goabnf.WithThreshold(1024), // cap generated size
 		)
-
-		Function(b)
+		MyParser(input) // must not panic; optionally cross-check verdicts
 	})
 }
 ```
 
----
+More fuzzing helpers are [documented here](examples/fuzzing/).
+
+### As a differential oracle
+
+The recognizer and the parse forest are independent code paths over the same grammar; agreement between them (and with your own implementation) is a strong correctness signal:
+```go
+ok, _ := g.IsValid("rule", input)
+f, _ := goabnf.ParseForest(input, g, "rule")
+if ok != f.Valid() {
+	t.Fatalf("oracle disagreement on %q", input) // a bug in grammar or engine
+}
+```
+
+## Code generation
+
+Generate a standalone, specialized parser for a grammar - a jump-table GLL/BSR parser with inlined terminals, depending only on the standard library:
+```go
+src, _ := goabnf.GenerateGoParser(g, "rule", "myparser")
+// or, straight from ABNF source:
+src, _ = goabnf.GenerateGoParserFromABNF(grammarBytes, "rule", "myparser")
+```
+
+Wire it into `go generate` with the `cmd/abnf-gen` command:
+
+```go
+//go:generate go run github.com/pandatix/go-abnf/cmd/abnf-gen -in grammar.abnf -root rule -pkg myparser -out parser_gen.go
+```
+
+The generated file exposes `Parse`, `Result` (`Valid`/`NumTrees`/`Ambiguous`/ `Tree`) and `ParseTree`. Its identifiers are package-scoped, so generate **one parser per package** (e.g. a dedicated `internal/myparser/`). The generated parser is faithful to the grammar you give it: feeding the *raw* RFC 5234 ABNF self-definition produces an ambiguous parser (the defect Erratum 2968 fixes), while the corrected grammar produces an unambiguous one - choose deliberately, and assert the expected tree count in a test.
+
+## Safety
+
+The engines are bounded to stay usable on untrusted grammars and inputs: `WithMaxNodes` (transition graph), `WithMaxForestNodes` / `WithMaxSlots` (forest), `WithMaxRegexLen` (regex), and the generated parser's `MaxElements`. Numeric values are accepted up to 64 bits without panicking, and matching is Unicode-aware.
 
 ## Troubleshooting
 
@@ -83,10 +143,10 @@ func FuzzFunction(f *testing.F) {
 
 **Q**: My ABNF grammar does not work. Do you have any idea why ?
 
-**R**: There could be many reasons to this. First make sure your grammar ends up by a newline (LF), and especially that the input content has a CR LF. As those appear the same, it is often a source of error.
+**A**: There could be many reasons to this. First make sure your grammar ends up by a newline (LF), and especially that the input content has a CR LF. As those appear the same, it is often a source of error.
 
 ### Difference between pap and bap
 
 **Q**: Is there a difference between pap and [bap](https://github.com/ietf-tools/bap) ?
 
-**R**: Yes, first of all the language (i.e. Go) enables **more portability thus integration in workflows**. But the real difference between pap and bap resides is the way they work: pap is built on an opportunity to challenge bap whether bap is built to generate meaningfull errors to the end user. Out of this, pap goes further as it enables you to **build the transition graph** from a given grammar and fuzz Go code, but also **support Unicode code points** that might be usefull (e.g., [TOML is specified in ABNF](https://github.com/toml-lang/toml/blob/main/toml.abnf))
+**A**: Being written in Go makes `pap` more portable and easier to embed in workflows. Beyond that, the goals differ: `bap` aims to produce meaningful end-user errors, whereas `pap` is built to *challenge* it - and goes further by building transition graphs for fuzzing Go code and by supporting Unicode code points (useful for, e.g., [TOML, which is specified in ABNF](https://github.com/toml-lang/toml/blob/main/toml.abnf)).
