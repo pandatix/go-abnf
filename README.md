@@ -47,6 +47,10 @@ flowchart TD
 
 ABNF is *self-describing*: its own syntax is written in ABNF. Go-ABNF bootstraps from a handwritten parse/evaluation of that meta-grammar, after which any valid grammar parsed by the library can in turn be used to parse new input - so the engine is generic, not specialized to ABNF.
 
+<div align="center">
+	<img src="res/grammar.excalidraw.png" width="800px">
+</div>
+
 Two parse paths exist by design:
 - **Recognition** (`Grammar.IsValid`) answers *does this input match?* by tracking the set of reachable input positions. It never materializes a tree, so it is cheap and is the reference verdict for the other paths.
 - **Parsing** builds a derivation representation using a **GLL** engine [1], which handles arbitrary context-free grammars including ambiguity and (left/right/hidden) recursion. Two representations are available over the same engine: a **Shared Packed Parse Forest** [2] (`ParseForest`) and a **Binary Subtree Set** [3] (`ParseBSR`). Both expose `Valid`, `NumTrees`, `Ambiguous` and `Tree`.
