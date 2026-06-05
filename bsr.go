@@ -336,10 +336,10 @@ func (f *BSRForest) NumTrees() *big.Int {
 		prod := f.sg.nts[sl.nt].alts[sl.alt]
 		last := symWays(prod[sl.dot-1], k, r)
 		var pre *big.Int
-		switch {
-		case sl.dot == 1: // empty prefix (l == k)
+		switch sl.dot {
+		case 1: // empty prefix (l == k)
 			pre = big.NewInt(1)
-		case sl.dot == 2: // single-symbol prefix
+		case 2: // single-symbol prefix
 			pre = symWays(prod[0], l, k)
 		default: // intermediate prefix
 			pre = countInter(slot{sl.nt, sl.alt, sl.dot - 1}, l, k)
@@ -405,9 +405,8 @@ func (f *BSRForest) Ambiguous() bool {
 	var symAmb func(nt, l, r int) bool
 	var interAmb func(sl slot, l, r int) bool
 	var elemAmb func(sl slot, l, k, r int) bool
-	var symOf func(s ssym, a, b int) bool
 
-	symOf = func(s ssym, a, b int) bool {
+	symOf := func(s ssym, a, b int) bool {
 		if s.kind == symNonterm {
 			return symAmb(s.nt, a, b)
 		}
@@ -418,10 +417,10 @@ func (f *BSRForest) Ambiguous() bool {
 		if symOf(prod[sl.dot-1], k, r) {
 			return true
 		}
-		switch {
-		case sl.dot == 1:
+		switch sl.dot {
+		case 1:
 			return false
-		case sl.dot == 2:
+		case 2:
 			return symOf(prod[0], l, k)
 		default:
 			return interAmb(slot{sl.nt, sl.alt, sl.dot - 1}, l, k)
@@ -505,10 +504,10 @@ func (f *BSRForest) emitSym(nt int, sl slot, k, l, r int, visited map[bsrNodeID]
 func (f *BSRForest) collectElem(sl slot, l, k, r int, out *[]*ParseTree, visited map[bsrNodeID]bool) {
 	prod := f.sg.nts[sl.nt].alts[sl.alt]
 	// prefix x_1..x_{dot-1} over [l,k]
-	switch {
-	case sl.dot == 1:
+	switch sl.dot {
+	case 1:
 		// empty
-	case sl.dot == 2:
+	case 2:
 		f.collectChild(prod[0], l, k, out, visited)
 	default:
 		isl := slot{sl.nt, sl.alt, sl.dot - 1}
