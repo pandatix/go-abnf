@@ -1,7 +1,6 @@
 package goabnf
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -1071,7 +1070,7 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 		default:
 			// min = 0 & 1 < max < inf: optional to n
 			if rep.Max > m.options.repetitionThreshold {
-				return nil, nil, errors.New("repetition threshold reached")
+				return nil, nil, ErrRepetitionThreshold
 			}
 			if err := m.reserveClones(rep.Max, elemi); err != nil {
 				return nil, nil, err
@@ -1087,7 +1086,7 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 		case 1:
 			// min == 1 & max == 1: mandatory
 			if rep.Min != 1 {
-				return nil, nil, errors.New("minimum must be 1")
+				return nil, nil, ErrRepetitionMinNotOne
 			}
 			entrypoints = appendNodes(entrypoints, elemi...)
 			endpoints = appendNodes(endpoints, elemo...)
@@ -1095,7 +1094,7 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 		case inf:
 			// min >= 1 && max = inf: n to infinity
 			if rep.Min > m.options.repetitionThreshold {
-				return nil, nil, errors.New("repetition threshold reached")
+				return nil, nil, ErrRepetitionThreshold
 			}
 			if err := m.reserveClones(rep.Min, elemi); err != nil {
 				return nil, nil, err
@@ -1121,10 +1120,10 @@ func (m *tgmachine) repGraph(rep Repetition) (entrypoints []*Node, endpoints []*
 		default:
 			// min >= 1 && max < inf: n to m
 			if rep.Min > rep.Max {
-				return nil, nil, errors.New("repetition minimum > maximum")
+				return nil, nil, ErrRepetitionMinGtMax
 			}
 			if rep.Max > m.options.repetitionThreshold {
-				return nil, nil, errors.New("repetition threshold reached")
+				return nil, nil, ErrRepetitionThreshold
 			}
 
 			// Build the flat chain (not endpoints, except last)
@@ -1443,7 +1442,7 @@ func (m *tgmachine) elemGraph(elem ElemItf) (entrypoints []*Node, endpoints []*N
 	case ElemGroup:
 		return m.altGraph(v.Alternation)
 	case ElemProseVal:
-		return nil, nil, errors.New("prose value is not supported in transition graphs")
+		return nil, nil, ErrProseValInTransitionGraph
 	}
 
 	panic("unsupported element")

@@ -143,24 +143,6 @@ func Test_ParseForest_UnknownRoot(t *testing.T) {
 	assert.IsType(t, &ErrRuleNotFound{}, err)
 }
 
-// enumerate returns every string of length 0..maxLen over the given alphabet.
-func enumerate(alphabet string, maxLen int) []string {
-	out := []string{""}
-	frontier := []string{""}
-	for l := 0; l < maxLen; l++ {
-		var next []string
-		for _, p := range frontier {
-			for _, c := range alphabet {
-				s := p + string(c)
-				out = append(out, s)
-				next = append(next, s)
-			}
-		}
-		frontier = next
-	}
-	return out
-}
-
 // Test_ParseForest_RepetitionBound covers native counted repetition: an absurd
 // but well-formed bound must NOT unroll into the slot grammar. It lowers in O(1)
 // and the bound is enforced at parse time, so a huge bound parses promptly and

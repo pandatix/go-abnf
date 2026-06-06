@@ -192,7 +192,7 @@ func checkCanGenerateSafelyAlt(g *Grammar, knownRules map[string]struct{}, alt A
 		}
 	}
 	if allErrors {
-		return errors.New("multiple errors")
+		return errors.Join(errs...)
 	}
 	return nil
 }

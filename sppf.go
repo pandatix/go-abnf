@@ -1,6 +1,7 @@
 package goabnf
 
 import (
+	"fmt"
 	"math/big"
 	"strconv"
 	"unicode/utf8"
@@ -307,6 +308,14 @@ type gllParser struct {
 
 	maxNodes int
 	aborted  bool
+
+	// Furthest-failure diagnostics: maxPos is the deepest input offset at which
+	// a terminal match was attempted and failed; expected collects the terminals
+	// that could have been consumed there (deduplicated via expectedSeen). They
+	// drive ParseError when the parse has no solution.
+	maxPos       int
+	expected     []string
+	expectedSeen map[string]bool
 }
 
 // nodeKey interns SPPF nodes without allocating strings. Distinct kinds never
@@ -531,6 +540,7 @@ func (p *gllParser) process(d descriptor) {
 		}
 		j := p.matchTerm(s, i)
 		if j < 0 {
+			p.noteFail(i, s)
 			return
 		}
 		cR := p.getNodeT(i, j)
@@ -538,6 +548,32 @@ func (p *gllParser) process(d descriptor) {
 		w = p.getNodeP(next, w, cR)
 		i = j
 		L = next
+	}
+}
+
+// noteFail records that a terminal match failed at input offset i. It maintains
+// the furthest such offset and, for that offset only, the set of terminals that
+// could have been consumed -- the classic "furthest-failure" position used to
+// report where parsing got stuck.
+func (p *gllParser) noteFail(i int, s ssym) {
+	if i > p.maxPos {
+		p.maxPos = i
+		p.expected = p.expected[:0]
+		p.expectedSeen = nil
+	}
+	if i != p.maxPos {
+		return
+	}
+	desc := "?"
+	if str, ok := s.term.(fmt.Stringer); ok {
+		desc = str.String()
+	}
+	if p.expectedSeen == nil {
+		p.expectedSeen = map[string]bool{}
+	}
+	if !p.expectedSeen[desc] {
+		p.expectedSeen[desc] = true
+		p.expected = append(p.expected, desc)
 	}
 }
 
@@ -582,6 +618,11 @@ type Forest struct {
 	rulename string
 	root     *gnode
 	built    int
+
+	// maxPos / expected carry the furthest-failure diagnostics from the parse,
+	// surfaced through ParseError when the forest is invalid.
+	maxPos   int
+	expected []string
 }
 
 // ForestOption configures ParseForest.
@@ -646,11 +687,22 @@ func ParseForest(input []byte, grammar *Grammar, rootRulename string, opts ...Fo
 	if p.aborted {
 		return nil, &ErrForestTooLarge{Max: cfg.maxNodes}
 	}
-	return &Forest{sg: sg, input: input, rulename: rootRulename, root: root, built: len(p.nodes)}, nil
+	return &Forest{sg: sg, input: input, rulename: rootRulename, root: root, built: len(p.nodes), maxPos: p.maxPos, expected: p.expected}, nil
 }
 
 // Valid reports whether the whole input is derivable by the root rule.
 func (f *Forest) Valid() bool { return f.root != nil }
+
+// ParseError returns the furthest-failure diagnostic for an invalid forest:
+// where parsing got stuck and which terminals were expected there. It returns
+// nil when the forest is valid. The returned error unwraps to
+// [ErrNoSolutionFound].
+func (f *Forest) ParseError() *ParseError {
+	if f.Valid() {
+		return nil
+	}
+	return newParseError(f.input, f.maxPos, f.expected)
+}
 
 // Nodes returns the number of forest nodes reachable from the root.
 func (f *Forest) Nodes() int {

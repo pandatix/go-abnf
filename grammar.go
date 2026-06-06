@@ -86,7 +86,7 @@ func ParseABNF(input []byte, opts ...ABNFOption) (*Grammar, error) {
 		return nil, err
 	}
 	if !f.Valid() {
-		return nil, ErrNoSolutionFound
+		return nil, f.ParseError()
 	}
 	if f.Ambiguous() {
 		return nil, &ErrMultipleSolutionsFound{}
