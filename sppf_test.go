@@ -15,7 +15,7 @@ import (
 // grammars the legacy backtracking parser could not handle. Forest.Valid must
 // agree with the recognizer (IsValid) on every input.
 
-func Test_ParseForest_LeftRecursion_AgreesWithRecognizer(t *testing.T) {
+func Test_U_ParseForest_LeftRecursion_AgreesWithRecognizer(t *testing.T) {
 	cases := map[string]struct {
 		abnf string
 		rule string
@@ -41,7 +41,7 @@ func Test_ParseForest_LeftRecursion_AgreesWithRecognizer(t *testing.T) {
 	}
 }
 
-func Test_ParseForest_NonLeftRecursive_Regression(t *testing.T) {
+func Test_U_ParseForest_NonLeftRecursive_Regression(t *testing.T) {
 	cases := map[string]struct {
 		abnf string
 		rule string
@@ -67,7 +67,7 @@ func Test_ParseForest_NonLeftRecursive_Regression(t *testing.T) {
 
 // The number of binary parse trees of `e = e "+" e / "1"` over k operands is the
 // (k-1)-th Catalan number. This is a precise oracle for SPPF ambiguity packing.
-func Test_ParseForest_AmbiguityCount_Catalan(t *testing.T) {
+func Test_U_ParseForest_AmbiguityCount_Catalan(t *testing.T) {
 	g := mustGrammar("e = e \"+\" e / \"1\"\r\n")
 	catalan := []int64{1, 1, 2, 5, 14, 42, 132, 429}
 	for ops := 1; ops <= 7; ops++ {
@@ -83,7 +83,7 @@ func Test_ParseForest_AmbiguityCount_Catalan(t *testing.T) {
 }
 
 // An infinitely-ambiguous grammar yields a cyclic forest; NumTrees reports -1.
-func Test_ParseForest_InfiniteAmbiguity(t *testing.T) {
+func Test_U_ParseForest_InfiniteAmbiguity(t *testing.T) {
 	g := mustGrammar("a = a / \"x\"\r\n")
 	f, err := ParseForest([]byte("x"), g, "a")
 	require.NoError(t, err)
@@ -94,7 +94,7 @@ func Test_ParseForest_InfiniteAmbiguity(t *testing.T) {
 	assert.NotNil(t, f.Tree())
 }
 
-func Test_ParseForest_NodeBudget(t *testing.T) {
+func Test_U_ParseForest_NodeBudget(t *testing.T) {
 	g := mustGrammar("list = num *(\",\" num)\r\nnum = 1*DIGIT\r\n")
 	parts := make([]string, 200)
 	for i := range parts {
@@ -113,7 +113,7 @@ func Test_ParseForest_NodeBudget(t *testing.T) {
 
 // The GLL engine must parse the ABNF meta-grammar itself, agreeing with the
 // recognizer, and recover a rule-rooted tree spanning the whole input.
-func Test_ParseForest_MetaGrammar(t *testing.T) {
+func Test_U_ParseForest_MetaGrammar(t *testing.T) {
 	inputs := []string{
 		"a = \"x\"\r\n",
 		"rule = ALPHA *(ALPHA / DIGIT)\r\n",
@@ -136,19 +136,19 @@ func Test_ParseForest_MetaGrammar(t *testing.T) {
 	}
 }
 
-func Test_ParseForest_UnknownRoot(t *testing.T) {
+func Test_U_ParseForest_UnknownRoot(t *testing.T) {
 	g := mustGrammar("a = \"x\"\r\n")
 	_, err := ParseForest([]byte("x"), g, "nope")
 	require.Error(t, err)
 	assert.IsType(t, &ErrRuleNotFound{}, err)
 }
 
-// Test_ParseForest_RepetitionBound covers native counted repetition: an absurd
+// Test_U_ParseForest_RepetitionBound covers native counted repetition: an absurd
 // but well-formed bound must NOT unroll into the slot grammar. It lowers in O(1)
 // and the bound is enforced at parse time, so a huge bound parses promptly and
 // the count is still exact. (Previously this DoS was only mitigated by rejecting
 // the grammar via the slot budget; it is now handled directly.)
-func Test_ParseForest_RepetitionBound(t *testing.T) {
+func Test_U_ParseForest_RepetitionBound(t *testing.T) {
 	// Exactly 9999999999 copies: lowers and parses with no error and no DoS;
 	// a 1-character input is correctly rejected (one copy is not enough).
 	g := mustGrammar("a = 9999999999\"x\"\r\n")
@@ -221,10 +221,10 @@ func Test_U_NativeRepetition(t *testing.T) {
 	assert.False(t, fbig.Valid(), "two copies cannot satisfy a minimum of 1000000")
 }
 
-// Test_ParseForest_UnsatisfiableBound checks that a max < min repetition is the
+// Test_U_ParseForest_UnsatisfiableBound checks that a max < min repetition is the
 // empty language (unsatisfiable), not an unbounded one. Built as a literal
 // because ParseABNF's default validation rejects min > max.
-func Test_ParseForest_UnsatisfiableBound(t *testing.T) {
+func Test_U_ParseForest_UnsatisfiableBound(t *testing.T) {
 	g := &Grammar{Rulemap: map[string]*Rule{
 		"a": {
 			Name: "a",
