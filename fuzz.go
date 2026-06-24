@@ -640,7 +640,7 @@ func nodeEmissions(n *Node) ([]emission, bool) {
 			}
 			if max <= 0x7f { // ASCII: a single one-octet emission
 				var s octetSet
-				for b := min; b <= max; b++ {
+				for b := min; b <= max && b <= 0x7f; b++ { // explicit ASCII bound for the conversion
 					s.add(byte(b))
 				}
 				return []emission{{pos: []octetSet{s}}}, true
