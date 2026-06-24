@@ -115,13 +115,6 @@ func Parse(input []byte, grammar *Grammar, rootRulename string) (*Forest, error)
 	return ParseForest(input, grammar, rootRulename)
 }
 
-// LexABNF has been replaced by [EvaluateABNF], please refer to it.
-//
-// Deprecated: replaced by EvaluateABNF.
-func LexABNF(input []byte, f *Forest) (*Grammar, error) {
-	return EvaluateABNF(input, f)
-}
-
 // EvaluateABNF evaluates a parse forest -- produced by parsing an ABNF source
 // against the ABNF meta-grammar -- into a ready-to-use *Grammar.
 func EvaluateABNF(input []byte, f *Forest, opts ...ABNFOption) (*Grammar, error) {
