@@ -2,7 +2,7 @@ package goabnf
 
 import (
 	"fmt"
-	"maps"
+	"slices"
 	"strings"
 )
 
@@ -56,14 +56,7 @@ func getDependencies(alt Alternation) []string {
 
 func appendDeps(deps []string, ndeps ...string) []string {
 	for _, ndep := range ndeps {
-		already := false
-		for _, dep := range deps {
-			if ndep == dep {
-				already = true
-				break
-			}
-		}
-		if !already {
+		if !slices.Contains(deps, ndep) {
 			deps = append(deps, ndep)
 		}
 	}
@@ -72,14 +65,15 @@ func appendDeps(deps []string, ndeps ...string) []string {
 
 // Mermaid returns a flowchart of the dependency graph.
 func (dg Depgraph) Mermaid() string {
-	out := "flowchart TD\n"
+	var out strings.Builder
+	out.WriteString("flowchart TD\n")
 	for _, node := range dg {
 		for _, dep := range node.Dependencies {
-			out += fmt.Sprintf("\t%s --> %s\n", node.Rulename, dep)
+			fmt.Fprintf(&out, "\t%s --> %s\n", node.Rulename, dep)
 		}
-		out += "\n"
+		out.WriteString("\n")
 	}
-	return out
+	return out.String()
 }
 
 // IsDag find Strongly Connected Components using Tarjan's algorithm
@@ -105,8 +99,6 @@ func (g *Grammar) IsDAG() bool {
 // RuleContainsCycle returns whether the rule contains a cycle or not.
 // It travels through the whole rule dependency graph, such that
 // it checks if the rule is cyclic AND if one of its dependency is too.
-//
-// WARNING: it is different than IsLeftTerminating, refer to its doc.
 func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
 	// Check the rule exists
 	rule := GetRule(rulename, g.Rulemap)
@@ -127,114 +119,58 @@ func (g *Grammar) RuleContainsCycle(rulename string) (bool, error) {
 	return ruleContainsCycle(scc.sccs, rulename), nil
 }
 
-// IsLeftTerminating returns whether the rule is not left terminating.
-// It travels through the whole rule dependency graph, such that
-// it checks if the rule has a way to left terminate.
-//
-// Notice that it depends on the ordering your grammar, which could be
-// illustrated by the ABNF rule "element" that begins with the alternation
-// of a "rulename", which is terminating, and not by "option" or "group"
-// which are not.
-//
-// WARNING: it is different than RuleContainsCycle, refer to its doc.
-func (g *Grammar) IsLeftTerminating(rulename string) (bool, error) {
-	// Check the rule exists
-	rule := GetRule(rulename, g.Rulemap)
-	if rule == nil {
-		return false, &ErrRuleNotFound{
-			Rulename: rulename,
-		}
-	}
-
-	// Stack has the same signature as a rulemap in order to use getRuleIn for simplicity
-	stack := map[string]*Rule{
-		rulename: rule,
-	}
-	return isAltLeftTerminating(g, stack, rule.Alternation), nil
-}
-
-func isAltLeftTerminating(g *Grammar, stack map[string]*Rule, alt Alternation) bool {
-	for _, con := range alt.Concatenations {
-		for _, rep := range con.Repetitions {
-			_, subIsOption := rep.Element.(ElemOption)
-			if rep.Min == 0 || subIsOption {
-				if !isElemLeftTerminating(g, stack, rep.Element) {
-					return false
-				}
-				continue
-			}
-			if !isElemLeftTerminating(g, stack, rep.Element) {
-				return false
-			}
-			break
-		}
-	}
-	return true
-}
-
-func isElemLeftTerminating(g *Grammar, stack map[string]*Rule, elem ElemItf) bool {
-	switch v := elem.(type) {
-	case ElemRulename:
-		ruleInStack := (getRuleIn(v.Name, stack) != nil)
-		if ruleInStack {
-			return false
-		}
-		rule := GetRule(v.Name, g.Rulemap)
-		stack[v.Name] = rule
-		return isAltLeftTerminating(g, maps.Clone(stack), rule.Alternation)
-	case ElemOption:
-		return isAltLeftTerminating(g, stack, v.Alternation)
-	case ElemGroup:
-		return isAltLeftTerminating(g, stack, v.Alternation)
-	case ElemCharVal:
-		return len(v.Values) != 0
-	case ElemProseVal:
-		return len(v.values) != 0
-	}
-	return true
-}
-
 func ruleContainsCycle(sccs [][]*node, rulename string) bool {
-	// Find rulename's SCC
-	scc := ([]*node)(nil)
-	rulenode := (*node)(nil)
+	// Index nodes by lowercase name and flag those sitting in a non-trivial SCC
+	// (size > 1 == a cycle). Precomputing this removes the O(V) SCC scan that
+	// the previous implementation did on every recursive step.
+	nodeOf := make(map[string]*node, len(sccs))
+	inCycle := make(map[string]bool, len(sccs))
+
 	for _, s := range sccs {
-		if scc != nil {
-			break
-		}
-		for _, ss := range s {
-			if strings.EqualFold(ss.Rulename, rulename) {
-				rulenode = ss
-				scc = s
-				break
-			}
+		nontrivial := len(s) > 1
+		for _, nd := range s {
+			key := strings.ToLower(nd.Rulename)
+			nodeOf[key] = nd
+			inCycle[key] = nontrivial
 		}
 	}
-	if rulenode == nil {
-		// If the node corresponding to the rulename does not exist,
-		// consider there is no cycle.
+	return ruleCycleVisit(strings.ToLower(rulename), nodeOf, inCycle, map[string]bool{})
+}
+
+// ruleCycleVisit reports whether the rule (or any transitive dependency) is
+// cyclic. The visited set keeps each rule explored at most once: without it a
+// diamond-shaped dependency DAG is walked along every root-to-leaf path, which
+// is exponential. Marking on entry is safe because a cyclic rule returns true
+// here before it can ever be marked-and-skipped, so a memoized rule is always
+// genuinely acyclic.
+func ruleCycleVisit(key string, nodeOf map[string]*node, inCycle, visited map[string]bool) bool {
+	if visited[key] {
+		return false
+	}
+	visited[key] = true
+	nd := nodeOf[key]
+	if nd == nil {
+		// Unknown rule: treat as acyclic (matches the previous behaviour).
 		return false
 	}
 
-	// Check if cyclic
-	dependsOn := false
-	for _, dep := range rulenode.Dependencies {
-		if strings.EqualFold(dep, rulename) {
-			dependsOn = true
-			break
+	// Self-loop (a size-1 SCC with a self-edge is not flagged by inCycle).
+	for _, dep := range nd.Dependencies {
+		if strings.ToLower(dep) == key {
+			return true
 		}
 	}
-	if dependsOn || len(scc) != 1 {
+	if inCycle[key] {
 		// If it depends on itself or is part of an SCC, then is cylic
 		return true
 	}
 
-	// Propagate to deps
-	for _, dep := range rulenode.Dependencies {
-		if strings.EqualFold(dep, rulename) {
+	for _, dep := range nd.Dependencies {
+		dk := strings.ToLower(dep)
+		if dk == key {
 			continue
 		}
-		if ruleContainsCycle(sccs, dep) {
+		if ruleCycleVisit(dk, nodeOf, inCycle, visited) {
 			return true
 		}
 	}

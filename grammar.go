@@ -2,9 +2,9 @@ package goabnf
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 // Grammar represents an ABNF grammar as defined by RFC 5234.
@@ -17,15 +17,26 @@ type Grammar struct {
 // input, hence is valid given this grammar and especially one of its
 // rule.
 func (g *Grammar) IsValid(rulename string, input []byte) (bool, error) {
-	lt, err := g.IsLeftTerminating(rulename)
-	if err != nil {
-		return false, err
+	rule := GetRule(rulename, g.Rulemap)
+	if rule == nil {
+		return false, &ErrRuleNotFound{Rulename: rulename}
 	}
-	if !lt {
-		return false, fmt.Errorf("rule %s is not left terminating thus can't be validated without the risk of infinite recursion", rulename)
+	// Validity only needs to know whether some derivation consumes the whole
+	// input, never the (possibly exponentially many) derivations themselves.
+	// We therefore propagate the set of reachable end-positions per
+	// (element, index) instead of enumerating paths, which keeps this
+	// polynomial. Left-recursive rules are resolved by seed-growing rather than
+	// refused; see recognize.go and leftrec.go.
+	r := &recognizer{
+		g:          g,
+		input:      input,
+		memo:       map[string]map[int]bool{},
+		inProgress: map[string]bool{},
+		leftRec:    g.leftRecursiveSCCs(),
+		growing:    map[string]map[int]bool{},
 	}
-	paths, err := Parse(input, g, rulename)
-	return len(paths) != 0 && err == nil, nil
+	ends := r.reachElem(ElemRulename{Name: rulename}, 0)
+	return ends[len(input)], nil
 }
 
 // String returns the representation of the grammar that is valid
@@ -63,328 +74,289 @@ func (g *Grammar) PrettyPrint() string {
 	return out
 }
 
-// Path represents a portion of an input that matched a rule from
-// an index to another, with a composite structure.
-//
-// Notice it does not matches specifically ABNF grammar, but any
-// compatible grammar. The most common case is parsing an input with
-// the ABNF grammar as source, which is then evaluated to fall back into
-// a ready-to-go ABNF grammar of this input.
-// There may exist specific cases where you want to use another grammar
-// as source (e.g. EBNF grammar provided by parsing EBNF specification
-// input written in ABNF with the ABNF grammar as source, which as
-// itself been implemented from the ABNF specification of ABNF in the
-// ABNF structure).
-// For those cases, you can use this implementation as it uses a
-// generic behavior, by parsing your source ABNF grammar first then
-// use it to validate inputs.
-type Path struct {
-	// Subpaths aka children. Ordering applies
-	Subpaths []*Path
-	// MatchRule in source's grammar ruleset
-	MatchRule string
-	// Start ≤ End
-	Start, End int
-}
-
 // ParseABNF is a helper facilitating the call to Parse using the
 // pre-computed ABNF grammar and evaluated the resulting to produce
 // a ready-to-use grammar.
 func ParseABNF(input []byte, opts ...ABNFOption) (*Grammar, error) {
 	o := process(opts...)
 
-	// Parse input with ABNF grammar
-	// Don't need to transmit deepness option, as we can be sure ABNF won't
-	// recurse indefinitely.
-	paths, err := Parse(input, ABNF, "rulelist")
+	// Parse the ABNF source using the ABNF meta-grammar with the GLL engine.
+	f, err := Parse(input, ABNF, "rulelist")
 	if err != nil {
 		return nil, err
 	}
-	path := (*Path)(nil)
-	switch len(paths) {
-	case 0:
-		return nil, ErrNoSolutionFound
-	case 1:
-		path = paths[0]
-	default:
-		return nil, &ErrMultipleSolutionsFound{
-			Paths: paths,
-		}
+	if !f.Valid() {
+		return nil, f.ParseError()
+	}
+	if f.Ambiguous() {
+		return nil, &ErrMultipleSolutionsFound{}
 	}
 
-	// Evaluate the only path
-	g, err := EvaluateABNF(input, path, opts...)
+	g, err := evalForest(input, f, o)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validate semantics if requested to
 	if o.validate {
 		if err := SemvalABNF(g); err != nil {
 			return nil, err
 		}
 	}
-
 	return g, nil
 }
 
-// Parse parses an ABNF-compliant input using a grammar.
-// It uses uses a top-down parsing strategy using backtracking in
-// order to look for solutions. If many are found, it raises an error.
-// If the input is invalid (gramatically, incomplete...) it returns
-// an error of type *ErrParse.
-func Parse(input []byte, grammar *Grammar, rootRulename string) ([]*Path, error) {
-	// Select root rule to begin with
-	rootRule := GetRule(rootRulename, grammar.Rulemap)
-	if rootRule == nil {
-		return nil, &ErrRuleNotFound{
-			Rulename: rootRulename,
-		}
-	}
-
-	// Parse input with grammar's initial rule
-	possibilites := solveAlt(grammar, rootRule.Alternation, input, 0)
-
-	// Look for solutions that consumed the whole input
-	outPoss := []*Path{}
-	for _, poss := range possibilites {
-		if poss.End == len(input) {
-			poss.MatchRule = rootRulename
-			outPoss = append(outPoss, poss)
-		}
-	}
-
-	return outPoss, nil
+// Parse parses input against grammar starting at rootRulename using the GLL
+// engine, returning the shared packed parse forest. Unlike the previous
+// backtracking parser it accepts ANY grammar -- left, right and mutual
+// recursion and ambiguity included -- in worst-case cubic time, so it never
+// stack-overflows on left recursion nor blows up exponentially. Inspect the
+// result with the Forest methods (Valid, Ambiguous, NumTrees, Tree).
+func Parse(input []byte, grammar *Grammar, rootRulename string) (*Forest, error) {
+	return ParseForest(input, grammar, rootRulename)
 }
 
-func solveAlt(grammar *Grammar, alt Alternation, input []byte, index int) []*Path {
-	altPossibilities := []*Path{}
-
-	for _, concat := range alt.Concatenations {
-		cntPossibilities := []*Path{}
-
-		// Init with first repetition (guarantee of at least 1 repetition)
-		possibilities := solveRep(grammar, concat.Repetitions[0], input, index)
-		for _, poss := range possibilities {
-			cntPossibilities = append(cntPossibilities, &Path{
-				Subpaths:  []*Path{poss},
-				MatchRule: "",
-				Start:     index,
-				End:       poss.End,
-			})
-		}
-
-		// Keep going and multiply previous paths with current repetition
-		// resulting paths
-		for i := 1; i < len(concat.Repetitions); i++ {
-			rep := concat.Repetitions[i]
-
-			tmpPossibilities := []*Path{}
-			for _, cntPoss := range cntPossibilities {
-				possibilities := solveRep(grammar, rep, input, cntPoss.End)
-				for _, poss := range possibilities {
-					// If the possibility is the empty path, don't append the empty one
-					if poss.Start == poss.End {
-						tmpPossibilities = append(tmpPossibilities, cntPoss)
-						continue
-					}
-
-					// Remove empty traversal previous subpath if necessary
-					subs := make([]*Path, len(cntPoss.Subpaths))
-					copy(subs, cntPoss.Subpaths)
-					lastSub := subs[len(subs)-1]
-					if lastSub.Start == lastSub.End {
-						subs = subs[:len(subs)-1]
-					}
-
-					tmpPossibilities = append(tmpPossibilities, &Path{
-						Subpaths:  append(subs, poss),
-						MatchRule: "",
-						Start:     index,
-						End:       poss.End,
-					})
-				}
-			}
-			cntPossibilities = tmpPossibilities
-		}
-
-		altPossibilities = append(altPossibilities, cntPossibilities...)
-	}
-	return altPossibilities
+// EvaluateABNF evaluates a parse forest -- produced by parsing an ABNF source
+// against the ABNF meta-grammar -- into a ready-to-use *Grammar.
+func EvaluateABNF(input []byte, f *Forest, opts ...ABNFOption) (*Grammar, error) {
+	return evalForest(input, f, process(opts...))
 }
 
-func solveRep(grammar *Grammar, rep Repetition, input []byte, index int) []*Path {
-	outpaths := []*Path{}
-
-	// If the empty solution if possible, keep track of it
-	if rep.Min == 0 {
-		outpaths = append(outpaths, &Path{
-			Subpaths: []*Path{
-				{
-					Subpaths:  nil,
-					MatchRule: "",
-					Start:     index,
-					End:       index,
-				},
-			},
-			MatchRule: "", // This will be modified by upper function
-			Start:     index,
-			End:       index,
-		})
+func evalForest(input []byte, f *Forest, o *abnfOptions) (*Grammar, error) {
+	tree := f.Tree()
+	if tree == nil {
+		return nil, ErrNoSolutionFound
 	}
-
-	// Initiate repetition solve
-	if !solveKeepGoing(rep, input, index, 0) {
-		return outpaths
-	}
-	ppaths := [][]*Path{}
-	ppaths = append(ppaths, solveElem(grammar, rep.Element, input, index))
-
-	// Other repetition solves
-	for i := 1; i != rep.Max; i++ {
-		ppaths = append(ppaths, []*Path{})
-		for _, prevPath := range ppaths[i-1] {
-			// For all possibilities, duplicate the subpaths to avoid pointer updates
-			if !solveKeepGoing(rep, input, prevPath.End, i) {
-				continue
-			}
-			elemPossibilities := solveElem(grammar, rep.Element, input, prevPath.End)
-			for _, elemPoss := range elemPossibilities {
-				subs := make([]*Path, len(prevPath.Subpaths), len(prevPath.Subpaths)+1)
-				copy(subs, prevPath.Subpaths)
-				subs = append(subs, elemPoss)
-
-				ppaths[i] = append(ppaths[i], &Path{
-					Subpaths:  subs,
-					MatchRule: "",
-					Start:     prevPath.Start,
-					End:       elemPoss.End,
-				})
-			}
-		}
-
-		// If no new path found during this repetition, don't keep working
-		if len(ppaths[i]) == 0 {
-			break
-		}
-		// If one path has been produced yet did not made progress, we should not iterate as it
-		// won't go further (e.g., can happen with the repetition of an empty char-val).
-		if len(ppaths[i]) == 1 && ppaths[i][0].Start == ppaths[i][0].End {
-			break
-		}
-	}
-
-	// Return only the appropriate results.
-	for i := max(1, rep.Min); i <= len(ppaths); i++ {
-		outpaths = append(outpaths, ppaths[i-1]...)
-	}
-	return outpaths
+	ev := &feval{input: input, o: o}
+	return ev.rulelist(tree)
 }
 
-func solveElem(grammar *Grammar, elem ElemItf, input []byte, index int) []*Path {
-	paths := []*Path{}
+// feval evaluates the rule-keyed ParseTree of an ABNF source into a *Grammar.
+// It dispatches on rule names and reads byte spans, so it is decoupled from the
+// exact (scaffolding-collapsed) shape of the tree.
+type feval struct {
+	input []byte
+	o     *abnfOptions
+}
 
-	switch v := elem.(type) {
-	case ElemRulename:
-		rule := GetRule(v.Name, grammar.Rulemap)
-		possibilities := solveAlt(grammar, rule.Alternation, input, index)
-		for _, poss := range possibilities {
-			poss.MatchRule = v.Name
-			paths = append(paths, poss)
-		}
-
-	case ElemOption:
-		paths = solveRep(grammar, Repetition{
-			Min:     0,
-			Max:     1,
-			Element: ElemGroup(v),
-		}, input, index)
-
-	case ElemGroup:
-		paths = solveAlt(grammar, v.Alternation, input, index)
-
-	case ElemNumVal:
-		switch v.Status {
-		case StatRange:
-			// Any matches
-			min, max := numvalToRune(v.Elems[0], v.Base), numvalToRune(v.Elems[1], v.Base)
-
-			r, size := utf8.DecodeRune(input[index:])
-			if r == utf8.RuneError && size == 1 {
-				// invalid UTF-8
-				return paths
-			}
-
-			if min <= r && r <= max {
-				paths = append(paths, &Path{
-					Subpaths:  nil,
-					MatchRule: "",
-					Start:     index,
-					End:       index + size,
-				})
-			}
-
-		case StatSeries:
-			// Only match if all matches in order
-			initialIndex := index
-			matches := true
-			for i := 0; i < len(v.Elems) && matches; i++ {
-				r := string(numvalToRune(v.Elems[i], v.Base))
-				rSize := len([]byte(r))
-
-				if index+rSize > len(input) {
-					matches = false
-					break // don't need to go further, it's too small for a match
-				}
-
-				punc := input[index : index+rSize]
-				if r != string(punc) {
-					matches = false
-				}
-				index += rSize
-			}
-			if matches {
-				paths = append(paths, &Path{
-					Subpaths:  nil,
-					MatchRule: "",
-					Start:     initialIndex,
-					End:       index,
-				})
-			}
-		}
-
-	case ElemProseVal:
-		// Prose-val does not produce any path, is a prose description
-
-	case ElemCharVal:
-		initialIndex := index
-		matches := true
-		for i := 0; i < len(v.Values) && matches; i++ {
-			if index >= len(input) {
-				matches = false
-				break
-			}
-			r, size := utf8.DecodeRune(input[index:])
-			if r == utf8.RuneError && size == 1 {
-				matches = false
-				break
-			}
-			if sensequal(v.Values[i], r, v.Sensitive) {
-				index += size
-			} else {
-				matches = false
-			}
-		}
-		if matches {
-			paths = append(paths, &Path{
-				Subpaths:  nil,
-				MatchRule: "",
-				Start:     initialIndex,
-				End:       index,
-			})
+func ptChildren(t *ParseTree, name string) []*ParseTree {
+	var out []*ParseTree
+	for _, c := range t.Children {
+		if c.Rule == name {
+			out = append(out, c)
 		}
 	}
-	return paths
+	return out
+}
+
+func ptFirst(t *ParseTree, names ...string) *ParseTree {
+	for _, c := range t.Children {
+		if slices.Contains(names, c.Rule) {
+			return c
+		}
+	}
+	return nil
+}
+
+func (e *feval) span(t *ParseTree) string { return string(e.input[t.Start:t.End]) }
+
+func (e *feval) rulelist(t *ParseTree) (*Grammar, error) {
+	mp := map[string]*Rule{}
+	for _, rc := range ptChildren(t, "rule") {
+		rl, definedAs, err := e.rule(rc)
+		if err != nil {
+			return nil, err
+		}
+		switch definedAs {
+		case "=":
+			isCoreRule := GetRule(rl.Name, nil) != nil
+			if isCoreRule {
+				if !e.o.redefineCore {
+					return nil, &ErrCoreRuleModify{CoreRulename: rl.Name}
+				}
+			} else if GetRule(rl.Name, mp) != nil {
+				return nil, &ErrDuplicatedRule{Rulename: rl.Name}
+			}
+			mp[rl.Name] = rl
+		case "=/":
+			isCoreRule := GetRule(rl.Name, nil) != nil
+			if !e.o.redefineCore && isCoreRule {
+				return nil, &ErrCoreRuleModify{CoreRulename: rl.Name}
+			}
+			rule := GetRule(rl.Name, mp)
+			if rule == nil {
+				return nil, &ErrRuleNotFound{Rulename: rl.Name}
+			}
+			rule.Alternation.Concatenations = append(rule.Alternation.Concatenations, rl.Alternation.Concatenations...)
+			mp[rule.Name] = rule
+		}
+	}
+	return &Grammar{Rulemap: mp}, nil
+}
+
+func (e *feval) rule(t *ParseTree) (*Rule, string, error) {
+	nameNode := ptFirst(t, "rulename")
+	defNode := ptFirst(t, "defined-as")
+	elemsNode := ptFirst(t, "elements")
+	if nameNode == nil || defNode == nil || elemsNode == nil {
+		return nil, "", ErrNoSolutionFound
+	}
+	definedAs := "="
+	if strings.Contains(e.span(defNode), "=/") {
+		definedAs = "=/"
+	}
+	altNode := ptFirst(elemsNode, "alternation")
+	if altNode == nil {
+		return nil, "", ErrNoSolutionFound
+	}
+	alt, err := e.alternation(altNode)
+	if err != nil {
+		return nil, "", err
+	}
+	return &Rule{Name: e.span(nameNode), Alternation: alt}, definedAs, nil
+}
+
+func (e *feval) alternation(t *ParseTree) (Alternation, error) {
+	var cs []Concatenation
+	for _, cc := range ptChildren(t, "concatenation") {
+		c, err := e.concatenation(cc)
+		if err != nil {
+			return Alternation{}, err
+		}
+		cs = append(cs, c)
+	}
+	return Alternation{Concatenations: cs}, nil
+}
+
+func (e *feval) concatenation(t *ParseTree) (Concatenation, error) {
+	var rs []Repetition
+	for _, rc := range ptChildren(t, "repetition") {
+		r, err := e.repetition(rc)
+		if err != nil {
+			return Concatenation{}, err
+		}
+		rs = append(rs, r)
+	}
+	return Concatenation{Repetitions: rs}, nil
+}
+
+func (e *feval) repetition(t *ParseTree) (Repetition, error) {
+	min, max := 1, 1
+	if rep := ptFirst(t, "repeat"); rep != nil {
+		min, max = e.parseRepeat(rep)
+	}
+	elNode := ptFirst(t, "element")
+	if elNode == nil {
+		return Repetition{}, ErrNoSolutionFound
+	}
+	elem, err := e.element(elNode)
+	if err != nil {
+		return Repetition{}, err
+	}
+	return Repetition{Min: min, Max: max, Element: elem}, nil
+}
+
+func (e *feval) parseRepeat(t *ParseTree) (int, int) {
+	s := e.span(t)
+	before, after, ok := strings.Cut(s, "*")
+	if !ok {
+		d, _ := strconv.Atoi(s)
+		return d, d
+	}
+	min, max := 0, inf
+	if pre := before; pre != "" {
+		min, _ = strconv.Atoi(pre)
+	}
+	if post := after; post != "" {
+		max, _ = strconv.Atoi(post)
+	}
+	return min, max
+}
+
+func (e *feval) element(t *ParseTree) (ElemItf, error) {
+	c := ptFirst(t, "rulename", "group", "option", "char-val", "num-val", "prose-val")
+	if c == nil {
+		return nil, ErrNoSolutionFound
+	}
+	switch c.Rule {
+	case "rulename":
+		return ElemRulename{Name: e.span(c)}, nil
+	case "group":
+		alt, err := e.alternation(ptFirst(c, "alternation"))
+		if err != nil {
+			return nil, err
+		}
+		return ElemGroup{Alternation: alt}, nil
+	case "option":
+		alt, err := e.alternation(ptFirst(c, "alternation"))
+		if err != nil {
+			return nil, err
+		}
+		return ElemOption{Alternation: alt}, nil
+	case "char-val":
+		return e.charVal(c), nil
+	case "num-val":
+		return e.numVal(c), nil
+	case "prose-val":
+		return e.proseVal(c), nil
+	}
+	return nil, ErrNoSolutionFound
+}
+
+func (e *feval) charVal(t *ParseTree) ElemCharVal {
+	s := e.span(t)
+	sensitive := false
+	if len(s) >= 2 && s[0] == '%' {
+		if s[1] == 's' || s[1] == 'S' {
+			sensitive = true
+		}
+		s = s[2:]
+	}
+	first := strings.IndexByte(s, '"')
+	last := strings.LastIndexByte(s, '"')
+	value := []rune{}
+	if first >= 0 && last > first {
+		value = []rune(s[first+1 : last])
+	}
+	return ElemCharVal{Sensitive: sensitive, Values: value}
+}
+
+func (e *feval) numVal(t *ParseTree) ElemNumVal {
+	s := e.span(t)
+	base := "d"
+	rest := ""
+	if len(s) >= 2 && s[0] == '%' {
+		switch s[1] {
+		case 'b', 'B':
+			base = "b"
+		case 'd', 'D':
+			base = "d"
+		case 'x', 'X':
+			base = "x"
+		}
+		rest = s[2:]
+	}
+	status := StatSeries
+	var elems []string
+	if strings.ContainsRune(rest, '-') {
+		status = StatRange
+		elems = strings.Split(rest, "-")
+	} else {
+		elems = strings.Split(rest, ".")
+	}
+	// A num-val outside the Unicode range is still a well-formed numeric
+	// encoding (legitimate for non-textual / on-wire grammars), so it is kept
+	// as-is here. Strict semantic validation (SemvalABNF) rejects it for textual
+	// use; consumers that match against decoded runes treat an unrepresentable
+	// value as non-matching rather than panicking.
+	return ElemNumVal{Base: base, Status: status, Elems: elems}
+}
+
+func (e *feval) proseVal(t *ParseTree) ElemProseVal {
+	values := []string{}
+	for i := t.Start + 1; i < t.End-1; i++ {
+		values = append(values, string(e.input[i]))
+	}
+	return ElemProseVal{values: values}
 }
 
 func sensequal(target, actual rune, sensitive bool) bool {
@@ -406,413 +378,6 @@ func runeMax(r rune) rune {
 		return r - 'a' + 'A'
 	}
 	return r
-}
-
-// solveKeepGoing returns true if a new repetition should be tested or not.
-// If the repetition has no max, it returns whether input has been
-// totally consumed.
-// Else, it checks if input has been totally consumed AND if there
-// could be other repetitions.
-func solveKeepGoing(rep Repetition, input []byte, index, i int) bool {
-	// Find if could handle the length of this repetition
-	// considering its type
-	couldHandle := true
-	switch v := rep.Element.(type) {
-	case ElemNumVal:
-		// Check only one byte
-		couldHandle = index < len(input)
-
-	case ElemCharVal:
-		// Check current index+length of char value string is not longer than the input
-		couldHandle = index+len(v.Values) <= len(input)
-
-	case ElemProseVal:
-		// Don't need to go further as it can't be parsed
-		couldHandle = false
-	}
-
-	// If no maximum repetition, only bound to input length thus
-	// if it could handle its consumption given repetition's type
-	if rep.Max == inf {
-		return couldHandle
-	}
-	// If has a maximum repetition, check could handle AND will remain
-	// under boundary.
-	return couldHandle && i < rep.Max
-}
-
-// LexABNF has been replaced by [EvaluateABNF], please refer to it.
-//
-// Deprecated: replace by EvaluateABNF.
-func LexABNF(input []byte, path *Path) (*Grammar, error) {
-	return EvaluateABNF(input, path)
-}
-
-// EvaluateABNF is an evaluator for the ABNF structural model as per RFCs and Erratum.
-func EvaluateABNF(input []byte, path *Path, opts ...ABNFOption) (*Grammar, error) {
-	eval := evaluator{
-		options: process(opts...),
-	}
-
-	gr, err := eval.travel(input, path)
-	if err != nil {
-		return nil, err
-	}
-	return gr.(*Grammar), nil
-}
-
-type evaluator struct {
-	options *abnfOptions
-}
-
-func (eval *evaluator) travel(input []byte, path *Path) (any, error) {
-	switch path.MatchRule {
-	case abnfRulelist.Name:
-		mp := map[string]*Rule{}
-
-		path := path.Subpaths[0]
-		sub := path.Subpaths[0]
-		for i := 0; i < len(path.Subpaths); i++ {
-			// Only work on rules (i.e. skip empty lines)
-			if sub.MatchRule == "rule" {
-				// eval it to actual ABNF rule object
-				rltmp, err := eval.travel(input, sub)
-				if err != nil {
-					return nil, err
-				}
-				rl := rltmp.(Rule)
-
-				// Determine the "defined-as" characters -> new rule ("=") or alternation ("=/")
-				defAs := sub.Subpaths[1]
-				switch len(defAs.Subpaths) {
-				case 1:
-					defAs = defAs.Subpaths[0]
-				case 2:
-					if defAs.Subpaths[0].Subpaths[0].Subpaths == nil {
-						defAs = defAs.Subpaths[0]
-					} else {
-						defAs = defAs.Subpaths[1]
-					}
-				default: // case 3
-					defAs = defAs.Subpaths[1]
-				}
-				definedAs := strings.TrimSpace(string(input[defAs.Start:defAs.End]))
-				switch definedAs {
-				case "=":
-					coreRule := GetRule(rl.Name, nil)
-					isCoreRule := coreRule != nil
-					if isCoreRule {
-						if !eval.options.redefineCore {
-							return nil, &ErrCoreRuleModify{
-								CoreRulename: rl.Name,
-							}
-						}
-					} else {
-						if rule := GetRule(rl.Name, mp); rule != nil {
-							return nil, &ErrDuplicatedRule{
-								Rulename: rl.Name,
-							}
-						}
-					}
-
-					mp[rl.Name] = &rl
-				case "=/":
-					coreRule := GetRule(rl.Name, nil)
-					isCoreRule := coreRule != nil
-					if !eval.options.redefineCore && isCoreRule {
-						return nil, &ErrCoreRuleModify{
-							CoreRulename: rl.Name,
-						}
-					}
-
-					// Get it from rulemap and ensure it already exist
-					rule := GetRule(rl.Name, mp)
-					if rule == nil {
-						return nil, &ErrRuleNotFound{
-							Rulename: rl.Name,
-						}
-					}
-					rule.Alternation.Concatenations = append(rule.Alternation.Concatenations, rl.Alternation.Concatenations...)
-					mp[rule.Name] = rule
-				}
-			}
-
-			if i+1 < len(path.Subpaths) {
-				sub = path.Subpaths[i+1].Subpaths[0]
-			}
-		}
-		return &Grammar{
-			Rulemap: mp,
-		}, nil
-
-	case abnfRule.Name:
-		rulename := string(input[path.Subpaths[0].Start:path.Subpaths[0].End])
-		pth := path.Subpaths[2].Subpaths[0] // -> rule -> elements -> alternation
-		alttmp, err := eval.travel(input, pth)
-		if err != nil {
-			return nil, err
-		}
-		return Rule{
-			Name:        rulename,
-			Alternation: alttmp.(Alternation),
-		}, nil
-
-	case abnfRulename.Name:
-		return ElemRulename{
-			Name: string(input[path.Start:path.End]),
-		}, nil
-
-	case abnfAlternation.Name:
-		// Extract first concatenation, must exist
-		concatenations := make([]Concatenation, 0, 1)
-		cnttmp, err := eval.travel(input, path.Subpaths[0])
-		if err != nil {
-			return nil, err
-		}
-		concatenations = append(concatenations, cnttmp.(Concatenation))
-
-		// If none next, don't start following extraction
-		if len(path.Subpaths) == 1 {
-			return Alternation{
-				Concatenations: concatenations,
-			}, nil
-		}
-
-		// Determine first concatenation hit index
-		subs := path.Subpaths[1].Subpaths
-		icnt := 1
-		for icnt < len(subs) && !strings.EqualFold(subs[icnt].MatchRule, abnfConcatenation.Name) {
-			icnt++
-		}
-		cnttmp, err = eval.travel(input, subs[icnt])
-		if err != nil {
-			return nil, err
-		}
-		concatenations = append(concatenations, cnttmp.(Concatenation))
-
-		// Following are hits too, last of each subpaths is another concatenation
-		for _, sub := range subs[icnt+1:] {
-			cnttmp, err := eval.travel(input, sub.Subpaths[len(sub.Subpaths)-1])
-			if err != nil {
-				return nil, err
-			}
-			concatenations = append(concatenations, cnttmp.(Concatenation))
-		}
-
-		return Alternation{
-			Concatenations: concatenations,
-		}, nil
-
-	case abnfGroup.Name:
-		alt := (*Path)(nil)
-		for _, sub := range path.Subpaths {
-			if strings.EqualFold(sub.MatchRule, abnfAlternation.Name) {
-				alt = sub
-				break
-			}
-		}
-		alttmp, err := eval.travel(input, alt)
-		if err != nil {
-			return nil, err
-		}
-		return ElemGroup{
-			Alternation: alttmp.(Alternation),
-		}, nil
-
-	case abnfConcatenation.Name:
-		// Extract first repetition, must exist
-		repetitions := make([]Repetition, 0, 1)
-		reptmp, err := eval.travel(input, path.Subpaths[0])
-		if err != nil {
-			return nil, err
-		}
-		repetitions = append(repetitions, reptmp.(Repetition))
-
-		// If none next, don't start following extraction
-		if len(path.Subpaths) == 1 {
-			return Concatenation{
-				Repetitions: repetitions,
-			}, nil
-		}
-
-		// Determine first concatenation hit index
-		subs := path.Subpaths[1].Subpaths
-		irep := 1
-		for irep < len(subs) && !strings.EqualFold(subs[irep].MatchRule, abnfRepetition.Name) {
-			irep++
-		}
-		reptmp, err = eval.travel(input, subs[irep])
-		if err != nil {
-			return nil, err
-		}
-		repetitions = append(repetitions, reptmp.(Repetition))
-
-		// Following are hits too, last of each subpaths is another concatenation
-		for _, sub := range subs[irep+1:] {
-			reptmp, err := eval.travel(input, sub.Subpaths[len(sub.Subpaths)-1])
-			if err != nil {
-				return nil, err
-			}
-			repetitions = append(repetitions, reptmp.(Repetition))
-		}
-
-		return Concatenation{
-			Repetitions: repetitions,
-		}, nil
-
-	case abnfRepetition.Name:
-		min, max := 1, 1 // default to 1
-
-		var element *Path
-
-		switch len(path.Subpaths) {
-		case 1:
-			element = path.Subpaths[0]
-		case 2:
-			repeat := path.Subpaths[0].Subpaths[0].Subpaths[0] // -> option (hit) -> repeat -> hit
-			element = path.Subpaths[1]
-
-			// Look for "*" to determine behavior
-			spi := (*int)(nil)
-			for i := repeat.Start; i < repeat.End; i++ {
-				if input[i] == '*' {
-					spi = &i
-					break
-				}
-			}
-
-			if spi == nil {
-				// If not found, should be exact repetition match
-				dstr := string(input[repeat.Start:repeat.End])
-				d, err := strconv.Atoi(dstr)
-				if err != nil {
-					return nil, err
-				}
-				min, max = d, d
-			} else {
-				// Set min
-				dstr := string(input[repeat.Start:*spi])
-				if dstr == "" {
-					min = 0
-				} else {
-					d, err := strconv.Atoi(dstr)
-					if err != nil {
-						return nil, err
-					}
-					min = d
-				}
-				// Set max
-				dstr = string(input[*spi+1 : repeat.End])
-				if dstr == "" {
-					max = inf
-				} else {
-					d, err := strconv.Atoi(dstr)
-					if err != nil {
-						return nil, err
-					}
-					max = d
-				}
-			}
-		}
-
-		elemtmp, err := eval.travel(input, element.Subpaths[0])
-		if err != nil {
-			return nil, err
-		}
-		return Repetition{
-			Min:     min,
-			Max:     max,
-			Element: elemtmp.(ElemItf),
-		}, nil
-
-	case abnfOption.Name:
-		ialt := 1
-		for ialt < len(path.Subpaths) && !strings.EqualFold(path.Subpaths[ialt].MatchRule, abnfAlternation.Name) {
-			ialt++
-		}
-		alttmp, err := eval.travel(input, path.Subpaths[ialt])
-		if err != nil {
-			return nil, err
-		}
-		return ElemOption{
-			Alternation: alttmp.(Alternation),
-		}, nil
-
-	case abnfCharVal.Name:
-		value := []rune{}
-		for _, sub := range path.Subpaths[0].Subpaths {
-			if strings.EqualFold(sub.MatchRule, abnfQuotedString.Name) {
-				// Skip if empty char-val
-				if len(sub.Subpaths) == 2 {
-					continue
-				}
-				value = []rune(string(input[sub.Subpaths[1].Start:sub.Subpaths[1].End]))
-				break
-			}
-		}
-
-		return ElemCharVal{
-			Sensitive: strings.EqualFold(path.Subpaths[0].MatchRule, abnfCaseSensitiveString.Name), // by default insensitive (cf. RFC 7405)
-			Values:    value,
-		}, nil
-
-	case abnfProseVal.Name:
-		values := []string{}
-		for i := path.Start + 1; i < path.End-1; i++ {
-			values = append(values, string(input[i]))
-		}
-		return ElemProseVal{
-			values: values,
-		}, nil
-
-	case abnfNumVal.Name:
-		basePath := path.Subpaths[1].Subpaths[0]
-		stat := StatSeries
-		elems := []string{
-			// First hit always at the same spot
-			string(input[basePath.Subpaths[1].Start:basePath.Subpaths[1].End]),
-		}
-
-		var base string
-		switch basePath.MatchRule {
-		case abnfBinVal.Name:
-			base = "b"
-		case abnfDecVal.Name:
-			base = "d"
-		case abnfHexVal.Name:
-			base = "x"
-		}
-
-		// Find if series or range
-		if len(basePath.Subpaths) > 2 {
-			hit := basePath.Subpaths[2].Subpaths[0]
-			// Could be either serie or range
-			splc := input[hit.Subpaths[0].Start:hit.Subpaths[0].End]
-			if splc[0] == '-' {
-				stat = StatRange
-			}
-
-			// Second hit always at the same spot
-			elems = append(elems, string(input[hit.Subpaths[1].Start:hit.Subpaths[1].End]))
-
-			// Other follows in their own subpaths
-			for i := 2; i < len(hit.Subpaths); i++ {
-				t := hit.Subpaths[i]
-				elems = append(elems, string(input[t.Subpaths[1].Start:t.Subpaths[1].End]))
-			}
-		}
-
-		return ElemNumVal{
-			Base:   base,
-			Status: stat,
-			Elems:  elems,
-		}, nil
-	}
-
-	if len(path.Subpaths) == 1 {
-		return eval.travel(input, path.Subpaths[0])
-	}
-	panic(fmt.Sprintf("unhandlable path from %d to %d: \"%s\" ; sneek peak around \"%s\"", path.Start, path.End, input[path.Start:path.End], input[max(path.Start-10, 0):min(path.End+10, 0)]))
 }
 
 // SemvalABNF proceed to semantic validations of an ABNF grammar.

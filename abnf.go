@@ -17,8 +17,6 @@ import (
 // This is exposed for custom evaluation purposes, please don't use it else.
 type ElemItf interface {
 	fmt.Stringer
-
-	regex(*Grammar) (string, error)
 }
 
 // Rule represents an ABNF rule, with its name and underlying alternation.

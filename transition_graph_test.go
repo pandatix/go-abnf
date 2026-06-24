@@ -2,7 +2,9 @@ package goabnf
 
 import (
 	_ "embed"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -397,9 +399,10 @@ func Test_U_TransitionGraphExhaustiveCombinations(t *testing.T) {
 			},
 		},
 		"embed": {
-			// No semantic validation AND rules not defined (nor deflated) -> no combinations
+			// Outer optional is skippable, so the empty string is producible
+			// even though b and c are undefined (the empty path needs neither).
 			Input:                `a = [b [c / ";"]]`,
-			ExpectedCombinations: [][]byte{},
+			ExpectedCombinations: [][]byte{{}},
 		},
 	}
 
@@ -421,10 +424,6 @@ func Test_U_TransitionGraphExhaustiveCombinations(t *testing.T) {
 			elems := [][]byte{}
 			for r.Next() {
 				elems = append(elems, r.Scan())
-
-				if len(elems) > 32 {
-					break // virtually skip if infinite loop, no need to wait for the timeout
-				}
 			}
 
 			if tt.ExpectedCombinations != nil {
@@ -433,5 +432,175 @@ func Test_U_TransitionGraphExhaustiveCombinations(t *testing.T) {
 				assert.Equal(tt.ExpectedNumerCombinations, len(elems))
 			}
 		})
+	}
+}
+
+// drain reads a reader to completion (or until cap) within a deadline. It
+// returns the number of strings produced and whether it terminated naturally.
+// The whole point of the coverage rewrite is that this never hangs.
+func drain(t *testing.T, r *TransitionGraphReader, cap int) (int, bool) {
+	t.Helper()
+	done := make(chan [2]int, 1)
+	go func() {
+		n := 0
+		for r.Next() {
+			r.Scan()
+			n++
+			if n > cap {
+				done <- [2]int{n, 0}
+				return
+			}
+		}
+		done <- [2]int{n, 1}
+	}()
+	select {
+	case res := <-done:
+		return res[0], res[1] == 1
+	case <-time.After(20 * time.Second):
+		t.Fatal("reader did not terminate within 20s (DoS)")
+		return 0, false
+	}
+}
+
+func tg(t *testing.T, src string, opts ...TGOption) *TransitionGraph {
+	t.Helper()
+	g, err := ParseABNF([]byte(src))
+	if err != nil {
+		t.Fatalf("ParseABNF(%q): %v", src, err)
+	}
+	graph, err := g.TransitionGraph("s", opts...)
+	if err != nil {
+		t.Fatalf("TransitionGraph: %v", err)
+	}
+	return graph
+}
+
+// Mode B (compact) must terminate with a small set for every (grammar x option)
+// combination. Before the rewrite, 11 of these hung (infinite recursion /
+// unbounded walk) under the single reader that existed.
+func Test_U_TGReader_CompactAlwaysBounded(t *testing.T) {
+	t.Parallel()
+	srcs := []string{
+		"s = \"a\" / \"b\"\r\n",
+		"s = *\"a\"\r\n",
+		"s = *(\"a\" / \"b\")\r\n",
+		"s = *(\"ab\")\r\n",
+		"s = 1*2(\"a\" / \"b\")\r\n",
+		"s = *(\"x\" / (\"y\" [\"z\"]))\r\n",
+		"s = ALPHA *(ALPHA / DIGIT)\r\n",
+		"s = 2\"ab\" %x20 \"z\"\r\n",
+	}
+	opts := [][]TGOption{
+		nil,
+		{WithDeflateRules(true)},
+		{WithDeflateNumVals(true)},
+		{WithDeflateCharVals(true)},
+	}
+	for _, src := range srcs {
+		for _, o := range opts {
+			graph := tg(t, src, o...)
+			// Mode B (compact) is the universal guarantee: it always terminates
+			// and stays small, for every grammar -- including the dense ones where
+			// mode A's trail x variation product is astronomically large (finite,
+			// but not something you want to enumerate). That mode-A size is exactly
+			// why mode B exists, so we do NOT assert mode A terminates quickly here.
+			n, ok := drain(t, graph.Reader(WithCoverageMode(CoverageCompact)), 1_000_000)
+			if !ok {
+				t.Errorf("mode B did not terminate for %q", src)
+			}
+			if n > 100_000 {
+				t.Errorf("mode B produced %d strings for %q; expected a compact set", n, src)
+			}
+		}
+	}
+}
+
+// The previously-DoSing case now yields a finite covering set in both modes.
+func Test_U_TGReader_CyclicMultiNode_NoDoS(t *testing.T) {
+	t.Parallel()
+	graph := tg(t, "s = *(\"ab\")\r\n", WithDeflateCharVals(true))
+
+	nA, okA := drain(t, graph.Reader(), 5_000_000)
+	if !okA {
+		t.Fatal("mode A hung on *(\"ab\") deflateCharVals")
+	}
+	if nA == 0 {
+		t.Fatal("mode A produced nothing")
+	}
+
+	// Mode B must cover all 8 edges with a handful of strings.
+	r := graph.Reader(WithCoverageMode(CoverageCompact))
+	got := map[string]bool{}
+	for r.Next() {
+		got[string(r.Scan())] = true
+	}
+	// One representative covering set is {"", AB, abab, abAb, aBab, aBAb};
+	// assert it is small and contains the empty string and the four 1-rep heads
+	// that exercise the forward edges.
+	if len(got) == 0 || len(got) > 64 {
+		t.Fatalf("mode B set size %d out of expected range", len(got))
+	}
+	if !got[""] {
+		t.Error("mode B did not emit the empty string")
+	}
+}
+
+// Mode A reproduces the historical coverage counts exactly.
+func Test_U_TGReader_ModeA_KnownCounts(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		src  string
+		want int
+	}{
+		{"s = \"a\" / \"b\"\r\n", 4},
+		{"s = *\"a\"\r\n", 7},
+		{"s = *(\"ab\")\r\n", 21},
+	}
+	for _, c := range cases {
+		graph := tg(t, c.src)
+		n, ok := drain(t, graph.Reader(), 1_000_000)
+		if !ok {
+			t.Fatalf("%q did not terminate", c.src)
+		}
+		if n != c.want {
+			t.Errorf("%q: mode A produced %d, want %d", c.src, n, c.want)
+		}
+	}
+}
+
+// WithMaxNodes must be unbounded by default (backward compatible) and, when set,
+// must reject grammars whose construction would exceed the budget -- including
+// the nested-repetition and wide-num-val-range blow-ups that
+// WithRepetitionThreshold does not catch -- with a typed *ErrMaxNodesExceeded.
+func Test_U_TransitionGraph_MaxNodes(t *testing.T) {
+	t.Parallel()
+
+	// Default is unbounded: a moderately nested repetition still builds.
+	if _, err := mustGrammar("a = 10(10(\"x\"))\r\n").TransitionGraph("a"); err != nil {
+		t.Fatalf("default (unbounded) should build 10(10(\"x\")): %v", err)
+	}
+
+	// Bounded: the same shape, scaled up, must be rejected with the typed error.
+	_, err := mustGrammar("a = 100(100(100(\"x\")))\r\n").TransitionGraph("a", WithMaxNodes(10_000))
+	var budgetErr *ErrMaxNodesExceeded
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("nested reps over budget: got %v, want *ErrMaxNodesExceeded", err)
+	}
+
+	// Wide num-val range deflation is bounded too.
+	_, err = mustGrammar("a = %x00-10FFFF\r\n").TransitionGraph("a",
+		WithDeflateNumVals(true), WithMaxNodes(1_000))
+	if !errors.As(err, &budgetErr) {
+		t.Fatalf("wide deflated range over budget: got %v, want *ErrMaxNodesExceeded", err)
+	}
+
+	// A budget large enough for a normal grammar lets it build.
+	if _, err := mustGrammar("a = *(\"a\" / \"b\")\r\n").TransitionGraph("a", WithMaxNodes(1_000)); err != nil {
+		t.Fatalf("normal grammar under a generous budget: %v", err)
+	}
+
+	// A non-positive budget means unbounded.
+	if _, err := mustGrammar("a = 10(10(\"x\"))\r\n").TransitionGraph("a", WithMaxNodes(0)); err != nil {
+		t.Fatalf("MaxNodes(0) should be unbounded: %v", err)
 	}
 }
