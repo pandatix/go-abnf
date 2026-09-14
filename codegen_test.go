@@ -157,3 +157,34 @@ func Test_F_GeneratedABNFParser_ParsesABNFGrammar(t *testing.T) {
 			"a malformed grammar must be rejected; got %q", got)
 	}
 }
+
+// Test_F_GeneratedParser_ProseVal_Compiles is a regression test for #258: a
+// prose-val element can never match, so the generator emitted an unreachable
+// success tail referencing an undefined j, and the generated file failed to
+// compile. `0<pchar>` (the RFC 3986 construct from the issue) and a bare prose
+// element both route through the never-match path; the generated parser must
+// build.
+func Test_F_GeneratedParser_ProseVal_Compiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping compile-based codegen test in -short mode")
+	}
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go toolchain not found in PATH; skipping compile-based codegen test")
+	}
+
+	const grammar = "a = 0<pchar>\r\nb = <x>\r\nc = a b\r\n" // #258: prose-val in a 0-rep and bare
+	src, err := GenerateGoParserFromABNF([]byte(grammar), "c", "genprose", WithValidation(false))
+	require.NoError(t, err, "generating parser with a prose-val")
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "parser.go"), src, 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module genprose\n\ngo 1.18\n"), 0o644))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, goBin, "build", "./...")
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "generated parser must compile (regression #258):\n%s", out)
+}
