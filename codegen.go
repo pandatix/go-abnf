@@ -208,17 +208,26 @@ func (c *codegen) emitTerminal(b *strings.Builder, sym ssym, nextID int) {
 		fmt.Fprintf(b, "\t\t\tL = %d\n\t\t\tcontinue\n", nextID)
 		return
 	}
-	c.emitMatch(b, sym) // sets j or returns on failure
+	if !c.emitMatch(b, sym) {
+		// The terminal can never match (a prose-val, or a series carrying a
+		// non-Unicode value): emitMatch has emitted `return` and defined no j,
+		// so the success tail below would be unreachable and reference an
+		// undefined j ; we should stop here.
+		return
+	}
 	fmt.Fprintf(b, "\t\t\tp.record(%d, u.pos, i, j)\n", nextID)
 	fmt.Fprintf(b, "\t\t\ti = j\n\t\t\tL = %d\n\t\t\tcontinue\n", nextID)
 }
 
 // emitMatch emits inline code setting j to the end index on success or return on
-// failure.
-func (c *codegen) emitMatch(b *strings.Builder, s ssym) {
+// failure. It reports whether the terminal can match at all: a false result
+// means it emitted only `return` and defined no j (prose-val, or a series with a
+// non-Unicode value), so the caller must not emit the j-dependent success tail.
+func (c *codegen) emitMatch(b *strings.Builder, s ssym) bool {
 	switch v := s.term.(type) {
 	case ElemCharVal:
 		c.emitCharVal(b, v)
+		return true
 	case ElemNumVal:
 		switch v.Status {
 		case StatRange:
@@ -229,13 +238,16 @@ func (c *codegen) emitMatch(b *strings.Builder, s ssym) {
 			b.WriteString("\t\t\tif rv == utf8.RuneError && rs == 1 {\n\t\t\t\treturn\n\t\t\t}\n")
 			fmt.Fprintf(b, "\t\t\tif rv < %d || rv > %d {\n\t\t\t\treturn\n\t\t\t}\n", lo, hi)
 			b.WriteString("\t\t\tj := i + rs\n")
+			return true
 		case StatSeries:
-			c.emitSeries(b, v)
+			return c.emitSeries(b, v)
 		default:
 			b.WriteString("\t\t\treturn\n")
+			return false
 		}
 	default: // prose-val: never matches
 		b.WriteString("\t\t\treturn\n")
+		return false
 	}
 }
 
@@ -276,19 +288,20 @@ func (c *codegen) emitCharVal(b *strings.Builder, v ElemCharVal) {
 	}
 }
 
-func (c *codegen) emitSeries(b *strings.Builder, v ElemNumVal) {
+func (c *codegen) emitSeries(b *strings.Builder, v ElemNumVal) bool {
 	var sb strings.Builder
 	for _, e := range v.Elems {
 		r := numvalToRune(e, v.Base)
 		if !utf8.ValidRune(r) {
 			b.WriteString("\t\t\treturn // series contains a non-Unicode value\n")
-			return
+			return false
 		}
 		sb.WriteRune(r)
 	}
 	idx := c.seriesVar([]byte(sb.String()))
 	fmt.Fprintf(b, "\t\t\tif i+len(series%d) > len(p.input) || !bytesEqual(p.input[i:i+len(series%d)], series%d) {\n\t\t\t\treturn\n\t\t\t}\n", idx, idx, idx)
 	fmt.Fprintf(b, "\t\t\tj := i + len(series%d)\n", idx)
+	return true
 }
 
 func (c *codegen) seriesVar(bs []byte) int {
