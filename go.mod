@@ -1,9 +1,9 @@
 module github.com/pandatix/go-abnf
 
-go 1.24.4
+go 1.25.13
 
 require (
-	github.com/hashicorp/go-uuid v1.0.3
+	github.com/hashicorp/go-uuid v1.0.4
 	github.com/stretchr/testify v1.12.1
 )
 
