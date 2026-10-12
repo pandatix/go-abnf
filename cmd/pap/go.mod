@@ -1,6 +1,6 @@
 module github.com/pandatix/go-abnf/cmd/pap
 
-go 1.24.4
+go 1.25.13
 
 require (
 	github.com/pandatix/go-abnf v0.0.0-00010101000000-000000000000
@@ -11,7 +11,7 @@ replace github.com/pandatix/go-abnf => ../..
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
-	github.com/hashicorp/go-uuid v1.0.3 // indirect
+	github.com/hashicorp/go-uuid v1.0.4 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 )
