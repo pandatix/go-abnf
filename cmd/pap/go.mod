@@ -1,6 +1,6 @@
 module github.com/pandatix/go-abnf/cmd/pap
 
-go 1.25.13
+go 1.27.3
 
 require (
 	github.com/pandatix/go-abnf v0.0.0-00010101000000-000000000000

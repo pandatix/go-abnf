@@ -1,6 +1,6 @@
 module github.com/pandatix/go-abnf
 
-go 1.25.13
+go 1.27.3
 
 require (
 	github.com/hashicorp/go-uuid v1.0.4
