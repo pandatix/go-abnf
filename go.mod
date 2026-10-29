@@ -1,6 +1,6 @@
 module github.com/pandatix/go-abnf
 
-go 1.27.3
+go 1.24.4
 
 require github.com/stretchr/testify v1.12.1
 
