@@ -24,7 +24,7 @@ alternation    =  concatenation
 
 concatenation  =  repetition *(1*c-wsp repetition)
 
-repetition     =  [repeat] 
+repetition     =  [repeat] element
 
 repeat         =  1*DIGIT / (*DIGIT "*" *DIGIT)
 

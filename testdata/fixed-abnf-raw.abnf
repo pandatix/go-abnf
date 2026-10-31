@@ -9,7 +9,7 @@ comment        =  ";" *(WSP / VCHAR) CRLF
 alternation    =  concatenation
                            *(*c-wsp "/" *c-wsp concatenation)
 concatenation  =  repetition *(1*c-wsp repetition)
-repetition     =  [repeat] 
+repetition     =  [repeat] element
 repeat         =  1*DIGIT / (*DIGIT "*" *DIGIT)
 element        =  rulename / group / option /
                            char-val / num-val / prose-val
