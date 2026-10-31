@@ -657,6 +657,11 @@ func Test_U_IsValidMatchesParse(t *testing.T) {
 		"mutual-recursion": {mustGrammar("a = \"x\" b\r\nb = \"y\" / \"y\" a\r\n"), "a"},
 		"core-rules":       {mustGrammar("s = *(ALPHA / DIGIT)\r\n"), "s"},
 		"backtracking":     {mustGrammar("s = *\"ab\" \"a\"\r\n"), "s"},
+		// Nullable elements whose minimum exceeds the input length.
+		"nullable-min":     {mustGrammar("s = 7\"\"\r\n"), "s"},
+		"nullable-min-opt": {mustGrammar("s = 8[\"a\"]\r\n"), "s"},
+		"nullable-min-alt": {mustGrammar("s = 7*9(\"\" / \"a\")\r\n"), "s"},
+		"nullable-min-seq": {mustGrammar("s = 6\"\" \"a\" 9*(\"\" / \"b\")\r\n"), "s"},
 	}
 
 	inputs := allInputsUpTo("abxy1", 5)
