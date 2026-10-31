@@ -413,3 +413,133 @@ func Test_U_NumVal_Consumers_NoPanic(t *testing.T) {
 		}, "TransitionGraph src %q", c.src)
 	}
 }
+
+// Test_U_Lookahead_LinearRepetition pins the lookahead guard on a long
+// repetition followed by a delimiter: the stop alternate of 1*ALPHA is only
+// explored where the delimiter follows, so both engines build a forest linear
+// in the input length and every SPPF node built is reachable from the root.
+func Test_U_Lookahead_LinearRepetition(t *testing.T) {
+	g, err := ParseABNF([]byte("line = word %x20 number %x0A\r\nword = 1*ALPHA\r\nnumber = 1*DIGIT\r\n"))
+	require.NoError(t, err)
+
+	input := []byte(strings.Repeat("a", 4096) + " 1\n")
+
+	f, err := ParseForest(input, g, "line")
+	require.NoError(t, err)
+	require.True(t, f.Valid())
+	assert.False(t, f.Ambiguous())
+	assert.LessOrEqual(t, f.built, 4*len(input), "SPPF nodes built")
+	assert.Equal(t, f.Nodes(), f.built, "every SPPF node built is reachable")
+
+	b, err := ParseBSR(input, g, "line")
+	require.NoError(t, err)
+	require.True(t, b.Valid())
+	assert.LessOrEqual(t, b.Nodes(), 4*len(input), "BSR elements built")
+}
+
+// Test_U_Lookahead_Diagnostics pins that alternates and calls rejected by the
+// lookahead still drive the furthest-failure diagnostics, including terminals
+// that never match (prose-val).
+func Test_U_Lookahead_Diagnostics(t *testing.T) {
+	cases := map[string]struct {
+		abnf     string
+		input    string
+		offset   int
+		expected string
+	}{
+		"rejected-alternate-prose": {"a = \"x\" 2<p>\r\n", "xy", 1, "<p>"},
+		"rejected-call":            {"s = \"x\" a\r\na = \"z\"\r\n", "xy", 1, `"z"`},
+	}
+	for name, tt := range cases {
+		t.Run(name, func(t *testing.T) {
+			g, err := ParseABNF([]byte(tt.abnf), WithValidation(false))
+			require.NoError(t, err)
+
+			f, err := ParseForest([]byte(tt.input), g, strings.Fields(tt.abnf)[0])
+			require.NoError(t, err)
+			require.False(t, f.Valid())
+			pe := f.ParseError()
+			assert.Equal(t, tt.offset, pe.Offset)
+			assert.Contains(t, pe.Expected, tt.expected)
+		})
+	}
+}
+
+// Test_U_Lookahead_NoDeadCalls pins the lookahead guard on nonterminal calls
+// (A ::= α·Xβ is only called when the next symbol can start Xβ, or follow A
+// when Xβ is nullable). The grammars are not left-factored, so both alternates
+// pass the alternate test and the call is made mid-production; the next input
+// symbol still decides each call, so every GSS node either engine creates on a
+// valid input is popped.
+func Test_U_Lookahead_NoDeadCalls(t *testing.T) {
+	cases := map[string]struct {
+		abnf   string
+		inputs []string
+	}{
+		"common-prefix":     {"s = \"x\" a / \"x\" \"y\"\r\na = \"z\"\r\n", []string{"xy", "xz"}},
+		"repeated-prefix":   {"s = 1*(\"x\" a / \"x\" \"y\")\r\na = \"z\"\r\n", []string{"xyxzxy", "xz"}},
+		"repetition-prefix": {"s = *\"x\" a / *\"x\" \"y\"\r\na = \"z\"\r\n", []string{"xxy", "xxz", "y"}},
+		"nullable-call":     {"s = \"x\" a \"w\" / \"x\" \"y\"\r\na = [\"z\"]\r\n", []string{"xy", "xw", "xzw"}},
+	}
+	for name, tt := range cases {
+		t.Run(name, func(t *testing.T) {
+			g, err := ParseABNF([]byte(tt.abnf))
+			require.NoError(t, err)
+			sg, err := compileSlots(g, "s", defaultMaxSlots)
+			require.NoError(t, err)
+
+			for _, in := range tt.inputs {
+				sp := newGLLParser(sg, []byte(in), 0)
+				require.NotNilf(t, sp.parse(), "SPPF valid on %q", in)
+				for _, v := range sp.gss {
+					assert.NotEmptyf(t, sp.popped[v], "SPPF call frame %v at %d never popped on %q", v.ret, v.pos, in)
+				}
+
+				bp := newBSRParser(sg, []byte(in), 0)
+				bp.parse()
+				for _, v := range bp.gss {
+					assert.NotEmptyf(t, bp.popped[v], "BSR call frame %v at %d never popped on %q", v.ret, v.pos, in)
+				}
+			}
+		})
+	}
+}
+
+// Test_U_ParseForest_AlternatesSharingChildren pins that packed nodes are
+// labelled by the slot they complete: alternates deriving the same span through
+// the same children (equivalent terminals, a repeated alternate) are distinct
+// derivations, so the forest is ambiguous and counts each of them, as the BSR
+// set (whose elements carry the slot) does.
+func Test_U_ParseForest_AlternatesSharingChildren(t *testing.T) {
+	cases := map[string]struct {
+		abnf     string
+		input    string
+		numTrees int64
+	}{
+		"equivalent-terminals": {"a = \"a\" / %x61\r\n", "a", 2},
+		"repeated-rulename":    {"a = b / b\r\nb = \"x\"\r\n", "x", 2},
+		"case-insensitive":     {"a = \"Ab\" / \"ab\" / \"aB\"\r\n", "AB", 3},
+		"empty-alternates":     {"a = \"\" / \"\"\r\n", "", 2},
+		"in-group":             {"a = \"x\" (\"y\" / %x79)\r\n", "xy", 2},
+		"in-repetition":        {"a = 1*(\"a\" / %x61)\r\n", "aa", 4},
+		"distinct-terminals":   {"a = \"a\" / \"b\"\r\n", "a", 1},
+	}
+	for name, tt := range cases {
+		t.Run(name, func(t *testing.T) {
+			g, err := ParseABNF([]byte(tt.abnf))
+			require.NoError(t, err)
+
+			f, err := ParseForest([]byte(tt.input), g, "a")
+			require.NoError(t, err)
+			require.True(t, f.Valid())
+			assert.Equal(t, tt.numTrees, f.NumTrees().Int64(), "SPPF NumTrees")
+			assert.Equal(t, tt.numTrees > 1, f.Ambiguous(), "SPPF Ambiguous")
+			assert.NotNil(t, f.Tree())
+
+			b, err := ParseBSR([]byte(tt.input), g, "a")
+			require.NoError(t, err)
+			assert.Equal(t, tt.numTrees, b.NumTrees().Int64(), "BSR NumTrees")
+			assert.Equal(t, tt.numTrees > 1, b.Ambiguous(), "BSR Ambiguous")
+		})
+	}
+}
